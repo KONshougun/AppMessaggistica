@@ -37,7 +37,7 @@ func encodeECIES256(pubKeyByte, plaintext []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-func decode(privKeyByte, ciphertext []byte) ([]byte, error) {
+func decodeECIES256(privKeyByte, ciphertext []byte) ([]byte, error) {
 	privKey := ecies.NewPrivateKeyFromBytes(privKeyByte)
 
 	decrypted, err := ecies.Decrypt(privKey, ciphertext)
