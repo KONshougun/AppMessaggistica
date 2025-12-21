@@ -1,0 +1,12 @@
+module github.com/KONshougun/AppMessaggistica
+
+go 1.25.4
+
+require golang.org/x/crypto v0.46.0
+
+require (
+	github.com/ecies/go v1.0.1 // indirect
+	github.com/fomichev/secp256k1 v0.0.0-20180413221153-00116ff8c62f // indirect
+	github.com/pkg/errors v0.8.1 // indirect
+	golang.org/x/sys v0.39.0 // indirect
+)
