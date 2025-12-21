@@ -20,8 +20,8 @@ function Call-Api {
 
 # ------------------ ESECUZIONE ------------------
 
-Write-Host "`n>>> Effettuo SignIn per $($user.Username)" -ForegroundColor Cyan
-$response = Call-Api "SignIn" @{ Username = $user.Username; Password = $user.Password }
+Write-Host "`n>>> Effettuo LogIn per $($user.Username)" -ForegroundColor Cyan
+$response = Call-Api "LogIn" @{ Username = $user.Username; Password = $user.Password }
 
 if ($null -eq $response) {
     Write-Host "Nessuna risposta dal server" -ForegroundColor Red
