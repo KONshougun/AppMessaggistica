@@ -8,7 +8,7 @@ import (
 
 // privKey = 32B
 // pubKey = 33B (compressa)
-func generateKeysECIES256() ([]byte, []byte, error) {
+func GenerateKeysECIES256() ([]byte, []byte, error) {
 
 	privKey, err := ecies.GenerateKey()
 	if err != nil {
@@ -19,7 +19,7 @@ func generateKeysECIES256() ([]byte, []byte, error) {
 	return privKey.Bytes(), pubKey.Bytes(true), nil
 }
 
-func encodeECIES256(pubKeyByte, plaintext []byte) ([]byte, error) {
+func EncodeECIES256(pubKeyByte, plaintext []byte) ([]byte, error) {
 
 	pubKey, err := ecies.NewPublicKeyFromBytes(pubKeyByte)
 
@@ -37,7 +37,7 @@ func encodeECIES256(pubKeyByte, plaintext []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-func decodeECIES256(privKeyByte, ciphertext []byte) ([]byte, error) {
+func DecodeECIES256(privKeyByte, ciphertext []byte) ([]byte, error) {
 	privKey := ecies.NewPrivateKeyFromBytes(privKeyByte)
 
 	decrypted, err := ecies.Decrypt(privKey, ciphertext)

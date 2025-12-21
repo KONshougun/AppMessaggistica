@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-func encodeAES128(key []byte, nonce []byte, plaintext []byte) ([]byte, error) {
+func EncodeAES128(key []byte, nonce []byte, plaintext []byte) ([]byte, error) {
 
 	if len(key) != 16 || len(nonce) != 16 {
 		return nil, fmt.Errorf("key and nonce must be 16 bytes long")
@@ -29,7 +29,7 @@ func encodeAES128(key []byte, nonce []byte, plaintext []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-func decodeAES128(key []byte, nonce []byte, ciphertext []byte) ([]byte, error) {
+func DecodeAES128(key []byte, nonce []byte, ciphertext []byte) ([]byte, error) {
 	if len(key) != 16 || len(nonce) != 16 {
 		return nil, fmt.Errorf("key and nonce must be 16 bytes long")
 	}

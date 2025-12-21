@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	//"github.com/KONshougun/AppMessaggistica/httpRequest/AutenticationUser"
+
+	"github.com/KONshougun/AppMessaggistica/httpRequest"
 )
 
 // ngrok http --domain=tops-actually-filly.ngrok-free.app 18854
@@ -31,20 +32,17 @@ const (
 	RemoveMessage string = "RemoveMessage"
 )
 
-const (
-	Username        string = "Username"
-	ID              string = "ID"
-	Password        string = "Password"
-	ContactUsername string = "ContactUsername"
-	Contacts        string = "Contacts"
-	Nickname        string = "Nickname"
-	Text            string = "Text"
-	Error           string = "Error"
-)
-
 func main() {
-	http.HandleFunc("/"+SignIn, signIn)
-	http.HandleFunc("/"+LogIn, signIn)
+	http.HandleFunc("/"+SignIn, httpRequest.SignIn)
+
+	fmt.Println("Server HTTPS in ascolto sulla porta " + PORT)
+	err := http.ListenAndServe(PORT, nil)
+
+	if err != nil {
+		log.Fatal("Errore server HTTPS:", err)
+	}
+}
+	/*http.HandleFunc("/"+LogIn, httpRequest.LogIn)
 	http.HandleFunc("/"+CheckPassword, signIn)
 	http.HandleFunc("/"+SetPassword, signIn)
 	http.HandleFunc("/"+AddContact, signIn)
@@ -58,15 +56,4 @@ func main() {
 	http.HandleFunc("/"+RemoveContact, signIn)
 	http.HandleFunc("/"+BlockContact, signIn)
 	http.HandleFunc("/"+UnlockContact, signIn)
-	http.HandleFunc("/"+RemoveUser, signIn)
-
-	fmt.Println("Server HTTPS in ascolto sulla porta " + PORT)
-	err := http.ListenAndServe(PORT, nil)
-
-	if err != nil {
-		log.Fatal("Errore server HTTPS:", err)
-	}
-}
-
-func signIn(w http.ResponseWriter, r *http.Request) {
-}
+	http.HandleFunc("/"+RemoveUser, signIn)*/
