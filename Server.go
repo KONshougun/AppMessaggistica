@@ -9,7 +9,6 @@ import (
 // ngrok http --domain=tops-actually-filly.ngrok-free.app 18854
 const PORT = ":18854"
 
-
 const (
 	SignIn        string = "SignIn"
 	LogIn         string = "LogIn"
@@ -44,21 +43,21 @@ const (
 
 func main() {
 	http.HandleFunc("/"+SignIn, signIn)
-	http.HandleFunc("/"+LogIn, logIn)
-	http.HandleFunc("/"+CheckPassword, checkPassword)
-	http.HandleFunc("/"+SetPassword, setPassword)
-	http.HandleFunc("/"+AddContact, addContact)
-	http.HandleFunc("/"+SetNickname, setNickname)
-	http.HandleFunc("/"+GetContacts, getContacts)
-	http.HandleFunc("/"+AddGroup, addGroup)
-	http.HandleFunc("/"+GetChats, getChats)
-	http.HandleFunc("/"+SendMessage, sendMessage)
-	http.HandleFunc("/"+RemoveMessage, removeMessage)
-	http.HandleFunc("/"+ClearChat, clearChat)
-	http.HandleFunc("/"+RemoveContact, removeContact)
-	http.HandleFunc("/"+BlockContact, blockContact)
-	http.HandleFunc("/"+UnlockContact, unlockContact)
-	http.HandleFunc("/"+RemoveUser, removeUser)
+	http.HandleFunc("/"+LogIn, signIn)
+	http.HandleFunc("/"+CheckPassword, signIn)
+	http.HandleFunc("/"+SetPassword, signIn)
+	http.HandleFunc("/"+AddContact, signIn)
+	http.HandleFunc("/"+SetNickname, signIn)
+	http.HandleFunc("/"+GetContacts, signIn)
+	http.HandleFunc("/"+AddGroup, signIn)
+	http.HandleFunc("/"+GetChats, signIn)
+	http.HandleFunc("/"+SendMessage, signIn)
+	http.HandleFunc("/"+RemoveMessage, signIn)
+	http.HandleFunc("/"+ClearChat, signIn)
+	http.HandleFunc("/"+RemoveContact, signIn)
+	http.HandleFunc("/"+BlockContact, signIn)
+	http.HandleFunc("/"+UnlockContact, signIn)
+	http.HandleFunc("/"+RemoveUser, signIn)
 
 	fmt.Println("Server HTTPS in ascolto sulla porta " + PORT)
 	err := http.ListenAndServe(PORT, nil)
@@ -66,4 +65,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Errore server HTTPS:", err)
 	}
+}
+
+func signIn(w http.ResponseWriter, r *http.Request) {
 }
