@@ -2,7 +2,7 @@ package crypto
 
 import "golang.org/x/crypto/chacha20"
 
-func EncodeChaCha20(key [32]byte, nonce [12]byte, plaintext []byte) ([]byte, error) {
+func EncodeChaCha20(key [32]byte, nonce [24]byte, plaintext []byte) ([]byte, error) {
 	cipher, err := chacha20.NewUnauthenticatedCipher(key[:], nonce[:])
 	if err != nil {
 		return nil, err
@@ -13,7 +13,7 @@ func EncodeChaCha20(key [32]byte, nonce [12]byte, plaintext []byte) ([]byte, err
 }
 
 // DecodeChaCha20 decifra il ciphertext con la stessa chiave e nonce
-func DecodeChaCha20(key [32]byte, nonce [12]byte, ciphertext []byte) ([]byte, error) {
+func DecodeChaCha20(key [32]byte, nonce [24]byte, ciphertext []byte) ([]byte, error) {
 	cipher, err := chacha20.NewUnauthenticatedCipher(key[:], nonce[:])
 	if err != nil {
 		return nil, err

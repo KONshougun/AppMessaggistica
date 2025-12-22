@@ -1,40 +1,22 @@
 package httpRequest
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/KONshougun/AppMessaggistica/crypto"
-	"github.com/KONshougun/AppMessaggistica/databaseConnection"
-)
-
-const (
-	Username        string = "Username"
-	ID              string = "ID"
-	Password        string = "Password"
-	PrivateKey      string = "PrivateKey"
-	ContactUsername string = "ContactUsername"
-	Contacts        string = "Contacts"
-	Nickname        string = "Nickname"
-	Text            string = "Text"
-	Error           string = "Error"
 )
 
 func SignIn(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("SignIn")
 
-	// Assicurati che sia una POST
-	if r.Method != http.MethodPost {
-		fmt.Fprintf(w, `{"%s":Metodo non consentito}`, Error)
-		return
-	}
-
-	// Parse dei dati form-urlencoded
-	err := r.ParseForm()
+	db, err := InitConnections(w, r)
 	if err != nil {
-		fmt.Fprintf(w, `{"%s": nel parsing del form}`, Error)
 		return
 	}
+	defer db.Close()
 
 	var username string = r.PostForm.Get(Username)
 	var password string = r.PostForm.Get(Password)
@@ -45,17 +27,11 @@ func SignIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	db, err := databaseConnection.StartConnection()
-	if err != nil {
-		fmt.Fprintf(w, `{"%s": connessione al database}`, Error)
-	}
-	defer db.Close()
-
 	query := "SELECT id FROM users WHERE username = ?;"
 	rows, err := db.Query(query, username)
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": richiesta al database}`, Error)
+		return
 	}
 	defer rows.Close()
 	if rows.Next() {
@@ -85,17 +61,17 @@ func SignIn(w http.ResponseWriter, r *http.Request) {
 	rows, err = db.Query(query, username)
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": ottenimento dell'id dal database}`, Error)
+		return
 	}
 	defer rows.Close()
+
 	if rows.Next() {
 		var id uint64
 		if err := rows.Scan(&id); err != nil {
 			fmt.Fprintf(w, `{"%s": nella lettura del database}`, Error)
+			return
 		}
 		fmt.Fprintf(w, `{"%s":"%v","%s":"%x"}`, ID, id, PrivateKey, privKey)
-		if rows.Next() {
-			fmt.Fprintf(w, `{"%s": più utenti con lo stesso username}`, Error)
-		}
 	}
 
 }
@@ -103,48 +79,105 @@ func SignIn(w http.ResponseWriter, r *http.Request) {
 func LogIn(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("LogIn")
 
-	// Assicurati che sia una POST
-	if r.Method != http.MethodPost {
-		fmt.Fprintf(w, "Metodo non consentito", Error)
-		return
-	}
-
-	// Parse dei dati form-urlencoded
-	err := r.ParseForm()
+	db, err := InitConnections(w, r)
 	if err != nil {
-		fmt.Fprintf(w, `{"%s": nel parsing del form}`, Error)
 		return
 	}
+	defer db.Close()
 
 	var username string = r.PostForm.Get(Username)
 	var password string = r.PostForm.Get(Password)
 
-	w.Header().Set("Content-Type", "application/json")
-	db, err := databaseConnection.StartConnection()
-	if err != nil {
-		fmt.Fprintf(w, `{"%s": connessione al database}`, Error)
-	}
-	defer db.Close()
-
-	query := "SELECT id, password_hash FROM users WHERE username = ?;"
+	query := "SELECT id, password_hash, failed_logins FROM users WHERE username = ?;"
 	rows, err := db.Query(query, username)
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": richiesta al database}`, Error)
+		return
 	}
 	defer rows.Close()
+
 	if rows.Next() {
 		var id uint64
 		var passwordHash []byte
-		if err := rows.Scan(&id, &passwordHash); err != nil {
+		var failedLogins uint8
+		if err := rows.Scan(&id, &passwordHash, &failedLogins); err != nil {
 			fmt.Fprintf(w, `{"%s": nella lettura del database}`, Error)
-		}
-		if crypto.CheckPasswordHash([]byte(password), passwordHash[:]) {
+			return
+		} else if crypto.CheckPasswordHash([]byte(password), passwordHash[:]) {
 			fmt.Fprintf(w, `{"%s":"%v"}`, ID, id)
+
+			query = "UPDATE users SET failed_logins = ? WHERE id = ?;"
+			_, err = db.Exec(query, 0, id)
+			if err != nil {
+				fmt.Println(`Errore: nell'aggiornamento dei tentativi falliti`)
+			}
+
 		} else {
+			query = "UPDATE users SET failed_logins = ? WHERE id = ?;"
+			_, err = db.Exec(query, failedLogins+1, id)
+			if err != nil {
+				fmt.Println(`Errore: nell'aggiornamento dei tentativi falliti`)
+			}
 			fmt.Fprintf(w, `{"%s":"Username o password errata"}`, Error)
 		}
-		if rows.Next() {
-			fmt.Fprintf(w, `{"%s": più utenti con lo stesso username}`, Error)
+	}
+}
+
+func AuthenticateUser(id uint64, password string, db *sql.DB) bool {
+	query := "SELECT password_hash FROM users WHERE id = ?;"
+	rows, err := db.Query(query, id)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var passwordHash []byte
+		if err := rows.Scan(&passwordHash); err != nil {
+			return false
+		} else if crypto.CheckPasswordHash([]byte(password), passwordHash[:]) {
+			return true
 		}
 	}
+	return false
+}
+
+func CheckPassword(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("CheckPawword")
+
+	db, err := InitConnections(w, r)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+
+	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	if err != nil {
+		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
+		return
+	}
+	var password string = r.PostForm.Get(Password)
+
+	query := "SELECT password_hash FROM users WHERE id = ?;"
+	rows, err := db.Query(query, id)
+	if err != nil {
+		fmt.Fprintf(w, `{"%s": richiesta al database}`, Error)
+		return
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+
+		var passwordHash []byte
+		if err := rows.Scan(&passwordHash); err != nil {
+			fmt.Fprintf(w, `{"%s": nella lettura del database}`, Error)
+			return
+		} else if crypto.CheckPasswordHash([]byte(password), passwordHash[:]) {
+			fmt.Fprintf(w, `{"%s":%v}`, Success, true)
+		} else {
+			fmt.Fprintf(w, `{"%s":%v}`, Success, false)
+		}
+		return
+	}
+	fmt.Fprintf(w, `{"%s":"ID o password errata"}`, Error)
 }

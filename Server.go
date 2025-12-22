@@ -26,15 +26,17 @@ const (
 	AddGroup      string = "AddGroup"
 	GetContacts   string = "GetContacts"
 
-	SendMessage   string = "SendMessage"
-	GetChats      string = "GetChats"
-	ClearChat     string = "ClearChat"
-	RemoveMessage string = "RemoveMessage"
+	SendMessage string = "SendMessage"
+	GetChats    string = "GetChats"
+	ClearChat   string = "ClearChat"
+	DeleteUser  string = "DeleteUser"
 )
 
 func main() {
 	http.HandleFunc("/"+SignIn, httpRequest.SignIn)
 	http.HandleFunc("/"+LogIn, httpRequest.LogIn)
+	http.HandleFunc("/"+CheckPassword, httpRequest.CheckPassword)
+	http.HandleFunc("/"+AddContact, httpRequest.AddContact)
 
 	fmt.Println("Server HTTPS in ascolto sulla porta " + PORT)
 	err := http.ListenAndServe(PORT, nil)
@@ -43,9 +45,9 @@ func main() {
 		log.Fatal("Errore server HTTPS:", err)
 	}
 }
-	/*http.HandleFunc("/"+CheckPassword, signIn)
+
+/*
 	http.HandleFunc("/"+SetPassword, signIn)
-	http.HandleFunc("/"+AddContact, signIn)
 	http.HandleFunc("/"+SetNickname, signIn)
 	http.HandleFunc("/"+GetContacts, signIn)
 	http.HandleFunc("/"+AddGroup, signIn)
@@ -56,4 +58,5 @@ func main() {
 	http.HandleFunc("/"+RemoveContact, signIn)
 	http.HandleFunc("/"+BlockContact, signIn)
 	http.HandleFunc("/"+UnlockContact, signIn)
-	http.HandleFunc("/"+RemoveUser, signIn)*/
+	http.HandleFunc("/"+DeleteUser, signIn)
+*/

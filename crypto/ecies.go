@@ -30,7 +30,7 @@ func EncodeECIES256(pubKeyByte, plaintext []byte) ([]byte, error) {
 	// Cifratura con la chiave pubblica
 	ciphertext, err := ecies.Encrypt(pubKey, plaintext)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	fmt.Printf("Ciphertext: %x\n", ciphertext)
 

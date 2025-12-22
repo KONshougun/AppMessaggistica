@@ -2,13 +2,14 @@ package databaseConnection
 
 import (
 	"database/sql"
+	"fmt"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 const (
 	DBUser     = "server:"
-	DBPassword = "Fiz5t8mPN*b4]*!g"
+	DBPassword = "2hvhZMSrmfIIdE4D"
 	DBHost     = "localhost"
 	DBPort     = ":3306"
 	DBName     = "appMessaggistica"
@@ -21,12 +22,14 @@ func StartConnection() (*sql.DB, error) {
 	// Apriamo la connessione
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
+		fmt.Println(err)
 		return nil, err
 	}
 
 	// Test connessione
 	err = db.Ping()
 	if err != nil {
+		fmt.Println(err)
 		return nil, err
 	}
 	return db, nil
