@@ -1,6 +1,7 @@
 package httpRequest
 
 import (
+	"database/sql"
 	"encoding/binary"
 	"fmt"
 	"net/http"
@@ -8,6 +9,12 @@ import (
 
 	"github.com/KONshougun/AppMessaggistica/crypto"
 )
+
+type Contact struct {
+	idContact uint64 `json : "id_contact"`
+	nickname  string `json : "nickname"`
+	isBlocked bool   `json : "is_blocked"`
+}
 
 func getKeyChaCha20FromContact(id_user uint64, password string) [32]byte {
 	var key [32]byte
@@ -27,22 +34,73 @@ func getNicknameNonceChaCha20FromContact(id_user uint64, password string, contac
 
 	return nonce
 }
-func getIdNonceChaCha20FromContact(id_user uint64, password string) [24]byte {
+func getIdNonceChaCha20FromContact(id_user uint64, password string, chiperNickname []byte) [24]byte {
 	var nonce [24]byte
 
 	//TODO
 	binary.BigEndian.PutUint64(nonce[:8], id_user)
-	binary.BigEndian.PutUint32(nonce[8:12], uint32(id_user))
-	copy(nonce[12:16], []byte(password)[:4])
-	copy(nonce[16:24], []byte(password)[:8])
+	copy(nonce[8:16], []byte(password)[:8])
+	copy(nonce[16:24], chiperNickname[:8])
 
 	return nonce
 }
+
+func getContacts(id uint64, password string, db *sql.DB) []Contact {
+
+	query := "SELECT id_contact, nickname, is_blocked FROM contacts WHERE id_user = ?;"
+	rows, err := db.Query(query, id)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var contacts []Contact
+	for rows.Next() {
+		var chiperId []byte
+		var chiperNickname []byte
+		var is_blocked bool
+
+		err = rows.Scan(&chiperId, &chiperNickname, &is_blocked)
+		if err != nil {
+			return nil
+		}
+
+		//Prendo la key
+		key := getKeyChaCha20FromContact(id, password)
+
+		// ID
+		idNonce := getIdNonceChaCha20FromContact(id, password, chiperNickname)
+		dechiperIdBytes, err := crypto.DecodeChaCha20(key, idNonce, chiperId)
+		if err != nil {
+			return nil
+		}
+		contactId, err := strconv.ParseUint(string(dechiperIdBytes), 10, 64)
+		if err != nil {
+			return nil
+		}
+
+		// NICKNAME
+		nicknameNonce := getNicknameNonceChaCha20FromContact(id, password, contactId)
+		dechiperNicknameBytes, err := crypto.DecodeChaCha20(key, nicknameNonce, chiperNickname)
+		if err != nil {
+			return nil
+		}
+
+		contacts = append(contacts, Contact{
+			idContact: contactId,
+			nickname:  string(dechiperNicknameBytes),
+			isBlocked: is_blocked,
+		})
+	}
+	return contacts
+}
+
 func AddContact(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("AddContact")
 
 	db, err := InitConnections(w, r)
 	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
 		return
 	}
 	defer db.Close()
@@ -80,7 +138,15 @@ func AddContact(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	//	DEVO CONTROLLARE SE IL CONTATTO ESISTE GIà
+	//	CONTROLLO SE IL CONTATTO ESISTE GIà
+	contacts := getContacts(id, password, db)
+	for _, contact := range contacts {
+		if contact.idContact == contactId ||
+			contact.nickname == nickname {
+			fmt.Fprintf(w, `{"%s": contatto o nickname già esistente}`, Error)
+			return
+		}
+	}
 
 	// INSERISCO NEL DB
 	tx, err := db.Begin()
@@ -97,7 +163,7 @@ func AddContact(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"%s": errore nella cifratura}`, Error)
 		return
 	}
-	idNonce := getIdNonceChaCha20FromContact(id, password)
+	idNonce := getIdNonceChaCha20FromContact(id, password, nicknameChiper)
 	idChiper, err := crypto.EncodeChaCha20(key, idNonce, []byte(strconv.FormatUint(contactId, 10)))
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": errore nella cifratura}`, Error)
@@ -132,4 +198,31 @@ func AddContact(w http.ResponseWriter, r *http.Request) {
 	} else {
 		fmt.Fprintf(w, `{"%s":%v}`, Success, true)
 	}
+}
+
+func GetContacts(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("GetContacts")
+
+	db, err := InitConnections(w, r)
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+	defer db.Close()
+
+	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	if err != nil {
+		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
+		return
+	}
+	var password string = r.PostForm.Get(Password)
+
+	if !AuthenticateUser(id, password, db) {
+		fmt.Fprintf(w, `{"%s":"Possibile tentativo di hacking"}`, Error)
+		return
+	}
+
+	contacts := getContacts(id, password, db)
+	fmt.Fprintf(w, `"%s" : %v `, Contacts, contacts)
+
 }

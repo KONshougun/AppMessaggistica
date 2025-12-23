@@ -14,6 +14,7 @@ func SignIn(w http.ResponseWriter, r *http.Request) {
 
 	db, err := InitConnections(w, r)
 	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
 		return
 	}
 	defer db.Close()
@@ -81,6 +82,7 @@ func LogIn(w http.ResponseWriter, r *http.Request) {
 
 	db, err := InitConnections(w, r)
 	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
 		return
 	}
 	defer db.Close()
@@ -147,6 +149,7 @@ func CheckPassword(w http.ResponseWriter, r *http.Request) {
 
 	db, err := InitConnections(w, r)
 	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
 		return
 	}
 	defer db.Close()

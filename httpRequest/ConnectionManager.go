@@ -23,7 +23,7 @@ const (
 
 func InitConnections(w http.ResponseWriter, r *http.Request) (*sql.DB, error) {
 	w.Header().Set("Content-Type", "application/json")
-	if !CheckConnection(r) {
+	if !checkConnection(r) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return nil, fmt.Errorf("connection check failed")
 	}
@@ -35,7 +35,7 @@ func InitConnections(w http.ResponseWriter, r *http.Request) (*sql.DB, error) {
 	return db, nil
 }
 
-func CheckConnection(r *http.Request) bool {
+func checkConnection(r *http.Request) bool {
 	// Assicurati che sia una POST
 	if r.Method != http.MethodPost {
 		return false

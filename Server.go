@@ -37,6 +37,7 @@ func main() {
 	http.HandleFunc("/"+LogIn, httpRequest.LogIn)
 	http.HandleFunc("/"+CheckPassword, httpRequest.CheckPassword)
 	http.HandleFunc("/"+AddContact, httpRequest.AddContact)
+	http.HandleFunc("/"+GetContacts, httpRequest.GetContacts)
 
 	fmt.Println("Server HTTPS in ascolto sulla porta " + PORT)
 	err := http.ListenAndServe(PORT, nil)
@@ -49,7 +50,6 @@ func main() {
 /*
 	http.HandleFunc("/"+SetPassword, signIn)
 	http.HandleFunc("/"+SetNickname, signIn)
-	http.HandleFunc("/"+GetContacts, signIn)
 	http.HandleFunc("/"+AddGroup, signIn)
 	http.HandleFunc("/"+GetChats, signIn)
 	http.HandleFunc("/"+SendMessage, signIn)

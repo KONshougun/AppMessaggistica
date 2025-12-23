@@ -1,16 +1,10 @@
 # ---------------- CONFIG ----------------
 $baseUrl = "https://tops-actually-filly.ngrok-free.app"
 
-# Utente principale (deve aver effettuato SignIn o LogIn)
+# Utente autenticato
 $user = @{
-    ID = "2"            # ID ottenuto dal SignIn/LogIn
-    Password = "pwdGiuseppe123"
-}
-
-# Contatto da aggiungere
-$contact = @{
-    Username = "Paolo"       # Username del contatto
-    Nickname = "Amico Paolo" # Nickname da assegnare
+    ID       = "2"                 # ID ottenuto da SignIn / LogIn
+    Password = "pwdGiuseppe123"    # Password in chiaro (come richiesto dal server)
 }
 
 # ---------- helper HTTP ----------
@@ -42,20 +36,18 @@ function Call-Api {
 
 # ------------------ ESECUZIONE ------------------
 
-Write-Host "`n>>> Aggiungo contatto $($contact.Username) all'utente ID $($user.ID)" -ForegroundColor Cyan
+Write-Host "`n>>> Richiamo GetContacts per utente ID $($user.ID)" -ForegroundColor Cyan
 
-$addResp = Call-Api "AddContact" @{
-    ID = $user.ID
+$response = Call-Api "GetContacts" @{
+    ID       = $user.ID
     Password = $user.Password
-    ContactUsername = $contact.Username
-    Nickname = $contact.Nickname
 }
 
-if ($null -eq $addResp) {
+if ($null -eq $response) {
     Write-Host "Nessuna risposta dal server" -ForegroundColor Red
 } else {
     Write-Host "Risposta server:" -ForegroundColor Green
-    Write-Host $addResp
+    Write-Host $response
 }
 
 Write-Host "`n=== Script terminato ==="
