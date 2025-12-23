@@ -42,11 +42,11 @@ func getNicknameNonceChaCha20FromContact(id_user uint64, password string, contac
 }
 
 // DA MIGLIORARE
-func getUsernameNonceChaCha20FromContact(id_user uint64, password string, chiperNickname []byte) [24]byte {
+func getUsernameNonceChaCha20FromContact(id_user uint64, password string, cipherNickname []byte) [24]byte {
 	var nonce [24]byte
 
 	var usernameBuff [8]byte
-	copy(usernameBuff[:], []byte(chiperNickname)[:])
+	copy(usernameBuff[:], []byte(cipherNickname)[:])
 
 	//TODO
 	binary.BigEndian.PutUint64(nonce[:8], id_user)
@@ -67,11 +67,11 @@ func getContacts(id uint64, password string, db *sql.DB) []Contact {
 
 	var contacts []Contact
 	for rows.Next() {
-		var chiperUsername []byte
-		var chiperNickname []byte
+		var cipherUsername []byte
+		var cipherNickname []byte
 		var is_blocked bool
 
-		err = rows.Scan(&chiperUsername, &chiperNickname, &is_blocked)
+		err = rows.Scan(&cipherUsername, &cipherNickname, &is_blocked)
 		if err != nil {
 			return nil
 		}
@@ -80,22 +80,22 @@ func getContacts(id uint64, password string, db *sql.DB) []Contact {
 		key := getKeyChaCha20FromContact(id, password)
 
 		// ID
-		usernameNonce := getUsernameNonceChaCha20FromContact(id, password, chiperNickname)
-		dechiperUsernameBytes, err := crypto.DecodeChaCha20(key, usernameNonce, chiperUsername)
+		usernameNonce := getUsernameNonceChaCha20FromContact(id, password, cipherNickname)
+		decipherUsernameBytes, err := crypto.DecodeChaCha20(key, usernameNonce, cipherUsername)
 		if err != nil {
 			return nil
 		}
 
 		// NICKNAME
-		nicknameNonce := getNicknameNonceChaCha20FromContact(id, password, dechiperUsernameBytes)
-		dechiperNicknameBytes, err := crypto.DecodeChaCha20(key, nicknameNonce, chiperNickname)
+		nicknameNonce := getNicknameNonceChaCha20FromContact(id, password, decipherUsernameBytes)
+		decipherNicknameBytes, err := crypto.DecodeChaCha20(key, nicknameNonce, cipherNickname)
 		if err != nil {
 			return nil
 		}
 
 		contacts = append(contacts, Contact{
-			username:  string(dechiperUsernameBytes),
-			nickname:  string(dechiperNicknameBytes),
+			username:  string(decipherUsernameBytes),
+			nickname:  string(decipherNicknameBytes),
 			isBlocked: is_blocked,
 		})
 	}
@@ -166,20 +166,20 @@ func AddContact(w http.ResponseWriter, r *http.Request) {
 	// CREO IL PRIMO CONTATTO
 	key := getKeyChaCha20FromContact(id, password)
 	nicknameNonce := getNicknameNonceChaCha20FromContact(id, password, []byte(contactUsername))
-	nicknameChiper, err := crypto.EncodeChaCha20(key, nicknameNonce, []byte(nickname))
+	nicknameCipher, err := crypto.EncodeChaCha20(key, nicknameNonce, []byte(nickname))
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": errore nella cifratura}`, Error)
 		return
 	}
-	usernameNonce := getUsernameNonceChaCha20FromContact(id, password, nicknameChiper)
-	usernameChiper, err := crypto.EncodeChaCha20(key, usernameNonce, []byte(contactUsername))
+	usernameNonce := getUsernameNonceChaCha20FromContact(id, password, nicknameCipher)
+	usernameCipher, err := crypto.EncodeChaCha20(key, usernameNonce, []byte(contactUsername))
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": errore nella cifratura}`, Error)
 		return
 	}
 
 	query = "INSERT INTO contacts (id_user, username, nickname) VALUES (?,?,?);"
-	_, err = tx.Exec(query, id, usernameChiper, nicknameChiper)
+	_, err = tx.Exec(query, id, usernameCipher, nicknameCipher)
 	if err != nil {
 		tx.Rollback()
 		fmt.Fprintf(w, `{"%s": %v}`, Error, err)
@@ -187,14 +187,14 @@ func AddContact(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//CREO IL SECONDO CONTATTO
-	chiperId, err := crypto.EncodeECIES256(contactPublicKey, []byte(strconv.FormatUint(id, 10)))
+	cipherId, err := crypto.EncodeECIES256(contactPublicKey, []byte(strconv.FormatUint(id, 10)))
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": errore nella cifratura}`, Error)
 		return
 	}
 
 	query = "INSERT INTO contacts (id_user, username) VALUES (?,?);"
-	_, err = tx.Exec(query, contactId, chiperId)
+	_, err = tx.Exec(query, contactId, cipherId)
 	if err != nil {
 		tx.Rollback()
 		fmt.Fprintf(w, `{"%s": %v}`, Error, err)
@@ -242,8 +242,8 @@ func GetContacts(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `"%s" : %v `, Contacts, strContacts)
 }
 
-func ChangeBlockState(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("ChangeBlockState")
+func SetBlockState(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("SetBlockState")
 
 	db, err := InitConnections(w, r)
 	if err != nil {
@@ -281,23 +281,146 @@ func ChangeBlockState(w http.ResponseWriter, r *http.Request) {
 	//Cripto lo username per poterlo cercare
 	key := getKeyChaCha20FromContact(id, password)
 	nickNonce := getNicknameNonceChaCha20FromContact(id, password, []byte(contactUsername))
-	chiperNick, err := crypto.EncodeChaCha20(key, nickNonce, []byte(nickname))
+	cipherNick, err := crypto.EncodeChaCha20(key, nickNonce, []byte(nickname))
 	if err != nil {
 		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
 		return
 	}
-	usernameNonce := getUsernameNonceChaCha20FromContact(id, password, chiperNick)
-	chipherUsername, err := crypto.EncodeChaCha20(key, usernameNonce, []byte(contactUsername))
+	usernameNonce := getUsernameNonceChaCha20FromContact(id, password, cipherNick)
+	cipherUsername, err := crypto.EncodeChaCha20(key, usernameNonce, []byte(contactUsername))
 	if err != nil {
 		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
 		return
 	}
 
 	query := "UPDATE contacts SET is_blocked = ? WHERE id_user = ? AND username = ?;"
-	_, err = db.Exec(query, blockState, id, chipherUsername)
+	_, err = db.Exec(query, blockState, id, cipherUsername)
 	if err != nil {
 		fmt.Println(`Errore: nell'aggiornamento dei tentativi falliti`)
-	}else {
+	} else {
+		fmt.Fprintf(w, `{"%s":%v}`, Success, true)
+	}
+}
+
+func SetNickname(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("SetNickname")
+
+	db, err := InitConnections(w, r)
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+	defer db.Close()
+
+	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	if err != nil {
+		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
+		return
+	}
+	var password string = r.PostForm.Get(Password)
+	var contactUsername string = r.PostForm.Get(ContactUsername)
+	var newNickname string = r.PostForm.Get(Nickname)
+
+	if !AuthenticateUser(id, password, db) {
+		fmt.Fprintf(w, `{"%s":"Possibile tentativo di hacking"}`, Error)
+		return
+	}
+
+	contacts := getContacts(id, password, db)
+	var nickname string
+	for _, contact := range contacts {
+		if contact.username == contactUsername {
+			nickname = contact.nickname
+		}
+	}
+
+	//Cripto lo username per poterlo cercare
+	key := getKeyChaCha20FromContact(id, password)
+	nickNonce := getNicknameNonceChaCha20FromContact(id, password, []byte(contactUsername))
+	cipherNick, err := crypto.EncodeChaCha20(key, nickNonce, []byte(nickname))
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+	usernameNonce := getUsernameNonceChaCha20FromContact(id, password, cipherNick)
+	cipherUsername, err := crypto.EncodeChaCha20(key, usernameNonce, []byte(contactUsername))
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+
+	newCipherNick, err := crypto.EncodeChaCha20(key, nickNonce, []byte(newNickname))
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+	usernameNonce = getUsernameNonceChaCha20FromContact(id, password, newCipherNick)
+	newCipherUsername, err := crypto.EncodeChaCha20(key, usernameNonce, []byte(contactUsername))
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+
+	query := "UPDATE contacts SET username = ?, nickname = ? WHERE id_user = ? AND username = ?;"
+	_, err = db.Exec(query, newCipherUsername, newCipherNick, id, cipherUsername)
+	if err != nil {
+		fmt.Println(`Errore: nell'aggiornamento dei tentativi falliti`)
+	} else {
+		fmt.Fprintf(w, `{"%s":%v}`, Success, true)
+	}
+}
+
+func RemoveContact(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("RemoveContact")
+
+	db, err := InitConnections(w, r)
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+	defer db.Close()
+
+	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	if err != nil {
+		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
+		return
+	}
+	var password string = r.PostForm.Get(Password)
+	var contactUsername string = r.PostForm.Get(ContactUsername)
+
+	if !AuthenticateUser(id, password, db) {
+		fmt.Fprintf(w, `{"%s":"Possibile tentativo di hacking"}`, Error)
+		return
+	}
+
+	contacts := getContacts(id, password, db)
+	var nickname string
+	for _, contact := range contacts {
+		if contact.username == contactUsername {
+			nickname = contact.nickname
+		}
+	}
+
+	//Cripto lo username per poterlo cercare
+	key := getKeyChaCha20FromContact(id, password)
+	nickNonce := getNicknameNonceChaCha20FromContact(id, password, []byte(contactUsername))
+	cipherNick, err := crypto.EncodeChaCha20(key, nickNonce, []byte(nickname))
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+	usernameNonce := getUsernameNonceChaCha20FromContact(id, password, cipherNick)
+	cipherUsername, err := crypto.EncodeChaCha20(key, usernameNonce, []byte(contactUsername))
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+
+	query := "DELETE FROM contacts WHERE id_user = ? AND username = ?;"
+	_, err = db.Exec(query, id, cipherUsername)
+	if err != nil {
+		fmt.Println(`Errore: nell'aggiornamento dei tentativi falliti`)
+	} else {
 		fmt.Fprintf(w, `{"%s":%v}`, Success, true)
 	}
 }

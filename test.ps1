@@ -1,16 +1,15 @@
 # ---------------- CONFIG ----------------
 $baseUrl = "https://tops-actually-filly.ngrok-free.app"
 
-# Utente che effettua l'azione
+# Utente autenticato
 $user = @{
     ID       = "2"                 # ID ottenuto da SignIn / LogIn
     Password = "pwdGiuseppe123"
 }
 
-# Contatto su cui agire
+# Contatto da rimuovere
 $contact = @{
-    Username   = "Paolo"
-    BlockState = "false"            # "true" per bloccare, "false" per sbloccare
+    Username = "Paolo"             # username del contatto da rimuovere
 }
 
 # ---------- helper HTTP ----------
@@ -42,13 +41,12 @@ function Call-Api {
 
 # ------------------ ESECUZIONE ------------------
 
-Write-Host "`n>>> Cambio stato blocco contatto '$($contact.Username)' (BlockState=$($contact.BlockState))" -ForegroundColor Cyan
+Write-Host "`n>>> Rimuovo contatto '$($contact.Username)'" -ForegroundColor Cyan
 
-$response = Call-Api "ChangeBlockState" @{
+$response = Call-Api "RemoveContact" @{
     ID              = $user.ID
     Password        = $user.Password
     ContactUsername = $contact.Username
-    BlockState      = $contact.BlockState
 }
 
 if ($null -eq $response -or $response.Trim() -eq "") {
