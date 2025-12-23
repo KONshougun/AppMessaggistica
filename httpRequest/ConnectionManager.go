@@ -9,11 +9,12 @@ import (
 )
 
 const (
-	Username        string = "Username"
 	ID              string = "ID"
+	Username        string = "Username"
 	Password        string = "Password"
 	PrivateKey      string = "PrivateKey"
 	ContactUsername string = "ContactUsername"
+	BlockState      string = "BlockState"
 	Nickname        string = "Nickname"
 	Contacts        string = "Contacts"
 	Text            string = "Text"

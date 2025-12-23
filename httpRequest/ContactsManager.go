@@ -11,11 +11,12 @@ import (
 )
 
 type Contact struct {
-	idContact uint64 `json : "id_contact"`
-	nickname  string `json : "nickname"`
-	isBlocked bool   `json : "is_blocked"`
+	username  string
+	nickname  string
+	isBlocked bool
 }
 
+// DA MIGLIORARE
 func getKeyChaCha20FromContact(id_user uint64, password string) [32]byte {
 	var key [32]byte
 
@@ -25,29 +26,39 @@ func getKeyChaCha20FromContact(id_user uint64, password string) [32]byte {
 	}
 	return key
 }
-func getNicknameNonceChaCha20FromContact(id_user uint64, password string, contactId uint64) [24]byte {
+
+// DA MIGLIORARE
+func getNicknameNonceChaCha20FromContact(id_user uint64, password string, contactUsername []byte) [24]byte {
 	var nonce [24]byte
 
+	var usernameBuff [8]byte
+	copy(usernameBuff[:], []byte(contactUsername)[:])
+
 	binary.BigEndian.PutUint64(nonce[:8], id_user)
-	binary.BigEndian.PutUint64(nonce[8:16], contactId)
 	copy(nonce[16:24], []byte(password)[:8])
+	copy(nonce[8:16], usernameBuff[:])
 
 	return nonce
 }
-func getIdNonceChaCha20FromContact(id_user uint64, password string, chiperNickname []byte) [24]byte {
+
+// DA MIGLIORARE
+func getUsernameNonceChaCha20FromContact(id_user uint64, password string, chiperNickname []byte) [24]byte {
 	var nonce [24]byte
+
+	var usernameBuff [8]byte
+	copy(usernameBuff[:], []byte(chiperNickname)[:])
 
 	//TODO
 	binary.BigEndian.PutUint64(nonce[:8], id_user)
 	copy(nonce[8:16], []byte(password)[:8])
-	copy(nonce[16:24], chiperNickname[:8])
+	copy(nonce[8:16], usernameBuff[:])
 
 	return nonce
 }
 
 func getContacts(id uint64, password string, db *sql.DB) []Contact {
 
-	query := "SELECT id_contact, nickname, is_blocked FROM contacts WHERE id_user = ?;"
+	query := "SELECT username, nickname, is_blocked FROM contacts WHERE id_user = ?;"
 	rows, err := db.Query(query, id)
 	if err != nil {
 		return nil
@@ -56,11 +67,11 @@ func getContacts(id uint64, password string, db *sql.DB) []Contact {
 
 	var contacts []Contact
 	for rows.Next() {
-		var chiperId []byte
+		var chiperUsername []byte
 		var chiperNickname []byte
 		var is_blocked bool
 
-		err = rows.Scan(&chiperId, &chiperNickname, &is_blocked)
+		err = rows.Scan(&chiperUsername, &chiperNickname, &is_blocked)
 		if err != nil {
 			return nil
 		}
@@ -69,25 +80,21 @@ func getContacts(id uint64, password string, db *sql.DB) []Contact {
 		key := getKeyChaCha20FromContact(id, password)
 
 		// ID
-		idNonce := getIdNonceChaCha20FromContact(id, password, chiperNickname)
-		dechiperIdBytes, err := crypto.DecodeChaCha20(key, idNonce, chiperId)
-		if err != nil {
-			return nil
-		}
-		contactId, err := strconv.ParseUint(string(dechiperIdBytes), 10, 64)
+		usernameNonce := getUsernameNonceChaCha20FromContact(id, password, chiperNickname)
+		dechiperUsernameBytes, err := crypto.DecodeChaCha20(key, usernameNonce, chiperUsername)
 		if err != nil {
 			return nil
 		}
 
 		// NICKNAME
-		nicknameNonce := getNicknameNonceChaCha20FromContact(id, password, contactId)
+		nicknameNonce := getNicknameNonceChaCha20FromContact(id, password, dechiperUsernameBytes)
 		dechiperNicknameBytes, err := crypto.DecodeChaCha20(key, nicknameNonce, chiperNickname)
 		if err != nil {
 			return nil
 		}
 
 		contacts = append(contacts, Contact{
-			idContact: contactId,
+			username:  string(dechiperUsernameBytes),
 			nickname:  string(dechiperNicknameBytes),
 			isBlocked: is_blocked,
 		})
@@ -141,7 +148,7 @@ func AddContact(w http.ResponseWriter, r *http.Request) {
 	//	CONTROLLO SE IL CONTATTO ESISTE GIà
 	contacts := getContacts(id, password, db)
 	for _, contact := range contacts {
-		if contact.idContact == contactId ||
+		if contact.username == contactUsername ||
 			contact.nickname == nickname {
 			fmt.Fprintf(w, `{"%s": contatto o nickname già esistente}`, Error)
 			return
@@ -155,23 +162,24 @@ func AddContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//	DA MIGLIORARE
 	// CREO IL PRIMO CONTATTO
 	key := getKeyChaCha20FromContact(id, password)
-	nicknameNonce := getNicknameNonceChaCha20FromContact(id, password, contactId)
+	nicknameNonce := getNicknameNonceChaCha20FromContact(id, password, []byte(contactUsername))
 	nicknameChiper, err := crypto.EncodeChaCha20(key, nicknameNonce, []byte(nickname))
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": errore nella cifratura}`, Error)
 		return
 	}
-	idNonce := getIdNonceChaCha20FromContact(id, password, nicknameChiper)
-	idChiper, err := crypto.EncodeChaCha20(key, idNonce, []byte(strconv.FormatUint(contactId, 10)))
+	usernameNonce := getUsernameNonceChaCha20FromContact(id, password, nicknameChiper)
+	usernameChiper, err := crypto.EncodeChaCha20(key, usernameNonce, []byte(contactUsername))
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": errore nella cifratura}`, Error)
 		return
 	}
 
-	query = "INSERT INTO contacts (id_user, id_contact, nickname) VALUES (?,?,?);"
-	_, err = tx.Exec(query, id, idChiper, nicknameChiper)
+	query = "INSERT INTO contacts (id_user, username, nickname) VALUES (?,?,?);"
+	_, err = tx.Exec(query, id, usernameChiper, nicknameChiper)
 	if err != nil {
 		tx.Rollback()
 		fmt.Fprintf(w, `{"%s": %v}`, Error, err)
@@ -185,7 +193,7 @@ func AddContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query = "INSERT INTO contacts (id_user, id_contact) VALUES (?,?);"
+	query = "INSERT INTO contacts (id_user, username) VALUES (?,?);"
 	_, err = tx.Exec(query, contactId, chiperId)
 	if err != nil {
 		tx.Rollback()
@@ -223,6 +231,73 @@ func GetContacts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	contacts := getContacts(id, password, db)
-	fmt.Fprintf(w, `"%s" : %v `, Contacts, contacts)
+	strContacts := "["
+	for i, contact := range contacts {
+		if i > 0 {
+			strContacts += ","
+		}
+		strContacts += `{"username": "` + contact.username + `", "nickname": "` + contact.nickname + `", "is_blocked": ` + strconv.FormatBool(contact.isBlocked) + "}"
+	}
+	strContacts += "]"
+	fmt.Fprintf(w, `"%s" : %v `, Contacts, strContacts)
+}
 
+func ChangeBlockState(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("ChangeBlockState")
+
+	db, err := InitConnections(w, r)
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+	defer db.Close()
+
+	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	if err != nil {
+		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
+		return
+	}
+	var password string = r.PostForm.Get(Password)
+	var contactUsername string = r.PostForm.Get(ContactUsername)
+	blockState, err := strconv.ParseBool(r.PostForm.Get(BlockState))
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+
+	if !AuthenticateUser(id, password, db) {
+		fmt.Fprintf(w, `{"%s":"Possibile tentativo di hacking"}`, Error)
+		return
+	}
+
+	contacts := getContacts(id, password, db)
+	var nickname string
+	for _, contact := range contacts {
+		if contact.username == contactUsername {
+			nickname = contact.nickname
+		}
+	}
+
+	//Cripto lo username per poterlo cercare
+	key := getKeyChaCha20FromContact(id, password)
+	nickNonce := getNicknameNonceChaCha20FromContact(id, password, []byte(contactUsername))
+	chiperNick, err := crypto.EncodeChaCha20(key, nickNonce, []byte(nickname))
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+	usernameNonce := getUsernameNonceChaCha20FromContact(id, password, chiperNick)
+	chipherUsername, err := crypto.EncodeChaCha20(key, usernameNonce, []byte(contactUsername))
+	if err != nil {
+		fmt.Fprintf(w, `{"%s":%v}`, Error, err)
+		return
+	}
+
+	query := "UPDATE contacts SET is_blocked = ? WHERE id_user = ? AND username = ?;"
+	_, err = db.Exec(query, blockState, id, chipherUsername)
+	if err != nil {
+		fmt.Println(`Errore: nell'aggiornamento dei tentativi falliti`)
+	}else {
+		fmt.Fprintf(w, `{"%s":%v}`, Success, true)
+	}
 }

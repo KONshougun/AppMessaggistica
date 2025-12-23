@@ -1,8 +1,6 @@
 package crypto
 
 import (
-	"fmt"
-
 	ecies "github.com/ecies/go"
 )
 
@@ -32,7 +30,6 @@ func EncodeECIES256(pubKeyByte, plaintext []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Ciphertext: %x\n", ciphertext)
 
 	return ciphertext, nil
 }
@@ -44,7 +41,6 @@ func DecodeECIES256(privKeyByte, ciphertext []byte) ([]byte, error) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Decrypted: %s\n", decrypted)
 
 	return decrypted, nil
 }

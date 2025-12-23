@@ -1,10 +1,16 @@
 # ---------------- CONFIG ----------------
 $baseUrl = "https://tops-actually-filly.ngrok-free.app"
 
-# Utente autenticato
+# Utente che effettua l'azione
 $user = @{
     ID       = "2"                 # ID ottenuto da SignIn / LogIn
-    Password = "pwdGiuseppe123"    # Password in chiaro (come richiesto dal server)
+    Password = "pwdGiuseppe123"
+}
+
+# Contatto su cui agire
+$contact = @{
+    Username   = "Paolo"
+    BlockState = "false"            # "true" per bloccare, "false" per sbloccare
 }
 
 # ---------- helper HTTP ----------
@@ -36,15 +42,17 @@ function Call-Api {
 
 # ------------------ ESECUZIONE ------------------
 
-Write-Host "`n>>> Richiamo GetContacts per utente ID $($user.ID)" -ForegroundColor Cyan
+Write-Host "`n>>> Cambio stato blocco contatto '$($contact.Username)' (BlockState=$($contact.BlockState))" -ForegroundColor Cyan
 
-$response = Call-Api "GetContacts" @{
-    ID       = $user.ID
-    Password = $user.Password
+$response = Call-Api "ChangeBlockState" @{
+    ID              = $user.ID
+    Password        = $user.Password
+    ContactUsername = $contact.Username
+    BlockState      = $contact.BlockState
 }
 
-if ($null -eq $response) {
-    Write-Host "Nessuna risposta dal server" -ForegroundColor Red
+if ($null -eq $response -or $response.Trim() -eq "") {
+    Write-Host "Nessuna risposta dal server (possibile OK silenzioso)" -ForegroundColor Yellow
 } else {
     Write-Host "Risposta server:" -ForegroundColor Green
     Write-Host $response
