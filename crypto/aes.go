@@ -6,6 +6,8 @@ import (
 	"fmt"
 )
 
+// 	key 	= 16B
+// 	nonce 	= 16B
 func EncodeAES128(key []byte, nonce []byte, plaintext []byte) ([]byte, error) {
 
 	if len(key) != 16 || len(nonce) != 16 {

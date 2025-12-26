@@ -50,11 +50,10 @@ func main() {
 }
 
 /*
-
 	http.HandleFunc("/"+AddGroup, signIn)
 	http.HandleFunc("/"+GetChats, signIn)
-	http.HandleFunc("/"+ClearChat, signIn)
 	http.HandleFunc("/"+SendMessage, signIn)
+	http.HandleFunc("/"+ClearChat, signIn)
 	http.HandleFunc("/"+RemoveMessage, signIn)
 
 	http.HandleFunc("/"+DeleteUser, signIn)

@@ -193,19 +193,29 @@ func AddContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query = "INSERT INTO contacts (id_user, username) VALUES (?,?);"
-	_, err = tx.Exec(query, contactId, cipherId)
+	query = "INSERT INTO contacts (id_user, username, key_flag) VALUES (?,?,?);"
+	_, err = tx.Exec(query, contactId, cipherId, 1)
 	if err != nil {
 		tx.Rollback()
 		fmt.Fprintf(w, `{"%s": %v}`, Error, err)
 		return
 	}
+
+	if !createChat(db, "", id, password) ||
+		!createChat(db, "", contactId) {
+
+		tx.Rollback()
+		fmt.Fprintf(w, `{"%s": Errore creazione dei membri}`, Error)
+		return
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": %v}`, Error, err)
 	} else {
 		fmt.Fprintf(w, `{"%s":%v}`, Success, true)
 	}
+
 }
 
 func GetContacts(w http.ResponseWriter, r *http.Request) {
