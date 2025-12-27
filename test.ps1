@@ -13,6 +13,11 @@ $paolo = @{
     NewNickname = "Paolo Fidato"
 }
 
+$chat = @{
+    ChatId  = "3"
+    Message = "Ciao Paolo, come va?"
+}
+
 # ---------- helper HTTP + timing ----------
 function Call-Api-Timed {
     param(
@@ -49,34 +54,12 @@ function Call-Api-Timed {
     }
 }
 
-# ------------------ ESECUZIONE ------------------
-
-# 1) LOGIN Giuseppe
-Call-Api-Timed "LOGIN Giuseppe" "LogIn" @{
-    Username = $giuseppe.Username
+# 5) SEND MESSAGE nella chat
+Call-Api-Timed "SEND MESSAGE Chat" "SendMessage" @{
+    Id       = $giuseppe.ID
     Password = $giuseppe.Password
-}
-
-# 2) ADD CONTACT Paolo
-Call-Api-Timed "ADD CONTACT Paolo" "AddContact" @{
-    ID              = $giuseppe.ID
-    Password        = $giuseppe.Password
-    ContactUsername = $paolo.Username
-    Nickname        = $paolo.Nickname
-}
-
-# 3) GET CONTACTS Giuseppe
-Call-Api-Timed "GET CONTACTS Giuseppe" "GetContacts" @{
-    ID       = $giuseppe.ID
-    Password = $giuseppe.Password
-}
-
-# 4) SET NICKNAME Paolo
-Call-Api-Timed "SET NICKNAME Paolo" "SetNickname" @{
-    ID              = $giuseppe.ID
-    Password        = $giuseppe.Password
-    ContactUsername = $paolo.Username
-    Nickname        = $paolo.NewNickname
+    ChatId   = $chat.ChatId
+    Message  = $chat.Message
 }
 
 Write-Host "`n=== Script terminato ===" -ForegroundColor Cyan

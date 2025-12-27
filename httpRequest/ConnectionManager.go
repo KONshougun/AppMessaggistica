@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	ID              string = "ID"
+	Id              string = "Id"
 	Username        string = "Username"
 	Password        string = "Password"
 	PrivateKey      string = "PrivateKey"
@@ -17,7 +17,8 @@ const (
 	BlockState      string = "BlockState"
 	Nickname        string = "Nickname"
 	Contacts        string = "Contacts"
-	Text            string = "Text"
+	ChatId          string = "ChatId"
+	Message         string = "Message"
 	Success         string = "Success"
 	Error           string = "Error"
 )

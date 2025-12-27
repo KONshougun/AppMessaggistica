@@ -72,7 +72,7 @@ func SignIn(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, `{"%s": nella lettura del database}`, Error)
 			return
 		}
-		fmt.Fprintf(w, `{"%s":"%v","%s":"%x"}`, ID, id, PrivateKey, privKey)
+		fmt.Fprintf(w, `{"%s":"%v","%s":"%x"}`, Id, id, PrivateKey, privKey)
 	}
 
 }
@@ -106,7 +106,7 @@ func LogIn(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, `{"%s": nella lettura del database}`, Error)
 			return
 		} else if crypto.CheckPasswordHash([]byte(password), passwordHash[:]) {
-			fmt.Fprintf(w, `{"%s":"%v"}`, ID, id)
+			fmt.Fprintf(w, `{"%s":"%v"}`, Id, id)
 
 			query = "UPDATE users SET failed_logins = ? WHERE id = ?;"
 			_, err = db.Exec(query, 0, id)
@@ -154,7 +154,7 @@ func CheckPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	id, err := strconv.ParseUint(r.PostForm.Get(Id), 10, 64)
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
 		return

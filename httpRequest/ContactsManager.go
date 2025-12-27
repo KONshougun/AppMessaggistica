@@ -112,7 +112,7 @@ func AddContact(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	id, err := strconv.ParseUint(r.PostForm.Get(Id), 10, 64)
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
 		return
@@ -228,7 +228,7 @@ func GetContacts(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	id, err := strconv.ParseUint(r.PostForm.Get(Id), 10, 64)
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
 		return
@@ -262,7 +262,7 @@ func SetBlockState(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	id, err := strconv.ParseUint(r.PostForm.Get(Id), 10, 64)
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
 		return
@@ -306,7 +306,7 @@ func SetBlockState(w http.ResponseWriter, r *http.Request) {
 	query := "UPDATE contacts SET is_blocked = ? WHERE id_user = ? AND username = ?;"
 	_, err = db.Exec(query, blockState, id, cipherUsername)
 	if err != nil {
-		fmt.Println(`Errore: nell'aggiornamento dei tentativi falliti`)
+		fmt.Fprintf(w, `{"%s": %v`, Error, err)
 	} else {
 		fmt.Fprintf(w, `{"%s":%v}`, Success, true)
 	}
@@ -322,7 +322,7 @@ func SetNickname(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	id, err := strconv.ParseUint(r.PostForm.Get(Id), 10, 64)
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
 		return
@@ -374,7 +374,7 @@ func SetNickname(w http.ResponseWriter, r *http.Request) {
 	query := "UPDATE contacts SET username = ?, nickname = ? WHERE id_user = ? AND username = ?;"
 	_, err = db.Exec(query, newCipherUsername, newCipherNick, id, cipherUsername)
 	if err != nil {
-		fmt.Println(`Errore: nell'aggiornamento dei tentativi falliti`)
+		fmt.Fprintf(w, `{"%s": %v`, Error, err)
 	} else {
 		fmt.Fprintf(w, `{"%s":%v}`, Success, true)
 	}
@@ -390,7 +390,7 @@ func RemoveContact(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	id, err := strconv.ParseUint(r.PostForm.Get(ID), 10, 64)
+	id, err := strconv.ParseUint(r.PostForm.Get(Id), 10, 64)
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": id non valido}`, Error)
 		return
@@ -429,7 +429,7 @@ func RemoveContact(w http.ResponseWriter, r *http.Request) {
 	query := "DELETE FROM contacts WHERE id_user = ? AND username = ?;"
 	_, err = db.Exec(query, id, cipherUsername)
 	if err != nil {
-		fmt.Println(`Errore: nell'aggiornamento dei tentativi falliti`)
+		fmt.Fprintf(w, `{"%s": %v`, Error, err)
 	} else {
 		fmt.Fprintf(w, `{"%s":%v}`, Success, true)
 	}

@@ -40,6 +40,7 @@ func main() {
 	http.HandleFunc("/"+SetBlockState, httpRequest.SetBlockState)
 	http.HandleFunc("/"+SetNickname, httpRequest.SetNickname)
 	http.HandleFunc("/"+RemoveContact, httpRequest.RemoveContact)
+	http.HandleFunc("/"+SendMessage, httpRequest.SendMessage)
 
 	fmt.Println("Server HTTPS in ascolto sulla porta " + PORT)
 	err := http.ListenAndServe(PORT, nil)
@@ -52,7 +53,6 @@ func main() {
 /*
 	http.HandleFunc("/"+AddGroup, signIn)
 	http.HandleFunc("/"+GetChats, signIn)
-	http.HandleFunc("/"+SendMessage, signIn)
 	http.HandleFunc("/"+ClearChat, signIn)
 	http.HandleFunc("/"+RemoveMessage, signIn)
 
