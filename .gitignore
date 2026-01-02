@@ -1,0 +1,14 @@
+# Environment variables
+.env
+
+# Go build
+/bin/
+/dist/
+*.exe
+
+# Go test
+*.test
+
+# OS
+.DS_Store
+Thumbs.db

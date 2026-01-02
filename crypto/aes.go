@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-// 	key 	= 16B
-// 	nonce 	= 16B
+// key 	= 16B
+// nonce 	= 16B
 func EncodeAES128(key []byte, nonce []byte, plaintext []byte) ([]byte, error) {
 
 	if len(key) != 16 || len(nonce) != 16 {
@@ -27,7 +27,6 @@ func EncodeAES128(key []byte, nonce []byte, plaintext []byte) ([]byte, error) {
 	ciphertext := make([]byte, len(plaintext))
 	stream.XORKeyStream(ciphertext, plaintext)
 
-	fmt.Printf("Ciphertext: %x\n", ciphertext)
 	return ciphertext, nil
 }
 
@@ -43,6 +42,5 @@ func DecodeAES128(key []byte, nonce []byte, ciphertext []byte) ([]byte, error) {
 	decrypted := make([]byte, len(ciphertext))
 	stream.XORKeyStream(decrypted, ciphertext)
 
-	fmt.Printf("Decrypted: %s\n", decrypted)
 	return decrypted, nil
 }
