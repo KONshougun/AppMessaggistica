@@ -3,13 +3,60 @@ package httpRequest
 import (
 	"crypto/rand"
 	"database/sql"
-	"encoding/binary"
+	"fmt"
 	"strconv"
+	"sync"
 
 	"github.com/KONshougun/AppMessaggistica/crypto"
+	"github.com/KONshougun/AppMessaggistica/dbData"
 )
 
-func getChatKey() ([16]byte, error) {
+// PER CREATE_CHAT
+var mu sync.Mutex
+
+
+
+//chatId
+//chatKey
+func newChat(tx *sql.Tx, name string) (uint64, [16]byte) {
+	mu.Lock()
+	defer mu.Unlock()
+	chatKey, err := newChatKey()
+	if err != nil {
+		return 0, [16]byte{}
+	}
+
+	//	------------------------	PRIMA DEVO CONTROLLARE SE LA CHAT GIA ESISTE
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (?);", dbData.Chats, dbData.Name)
+	_, err = tx.Exec(query, "")
+	if err != nil {
+		return 0, [16]byte{}
+	}
+
+	var chatId uint64
+	err = tx.QueryRow(fmt.Sprintf("SELECT MAX(%v) FROM %s", dbData.Id, dbData.Chats)).Scan(&chatId)
+	if err != nil {
+		return 0, [16]byte{}
+	}
+
+	var cipherName []byte = nil
+	if name != "" {
+		var chatNonce [16]byte
+		cipherName, err = crypto.EncodeAES(chatKey[:], chatNonce[:], []byte(name))
+		if err != nil {
+			return 0, [16]byte{}
+		}
+
+		query = fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ?;", dbData.Chats, dbData.Name, dbData.Id)
+		_, err := tx.Exec(query, cipherName, chatId)
+		if err != nil {
+			return 0, [16]byte{}
+		}
+	}
+	return chatId, chatKey
+}
+
+func newChatKey() ([16]byte, error) {
 	var key [16]byte
 
 	_, err := rand.Read(key[:])
@@ -19,107 +66,49 @@ func getChatKey() ([16]byte, error) {
 	return key, nil
 }
 
-func getKeyChaCha20FromMembers(id_user uint64, password string) [32]byte {
-	var key [32]byte
-
-	copy(key[:8], []byte(password)[:8])
-	copy(key[8:16], []byte(password)[:8])
-	binary.BigEndian.PutUint64(key[16:24], id_user)
-	binary.BigEndian.PutUint64(key[24:32], id_user)
-	return key
-}
-
-func createChat(db *sql.DB, name string, idMember uint64, passwords ...string) bool {
-	var password string = ""
-
-	chatKey, err := getChatKey()
+func newMember(tx *sql.Tx, chatId uint64, chatKey [16]byte, idUser uint64, userMk []byte, password string) bool {
+	idChatHash, err := crypto.EncodeHmacSha256(strconv.FormatUint(chatId, 10))
 	if err != nil {
 		return false
 	}
-	var lastID uint64
-	query := "SELECT COALESCE(MAX(id), 0) from chats"
-	err = db.QueryRow(query).Scan(&lastID)
-	if err != nil {
-		return false
-	}
-	chatId := lastID + 1
+	if password != "" {
 
-	if len(passwords) != 0 {
-		password = passwords[0]
-
-		var cipherName []byte = nil
-		if name != "" {
-			var chatNonce [16]byte
-			binary.BigEndian.PutUint64(chatNonce[0:8], chatId)
-			binary.BigEndian.PutUint64(chatNonce[8:16], 0)
-			cipherName, err = crypto.EncodeAES128(chatKey[:], chatNonce[:], []byte(name))
-			if err != nil {
-				return false
-			}
-		}
-
-		//	CREO LA CHAT
-		//	------------------------	PRIMA DEVO CONTROLLARE SE LA CHAT GIA ESISTE
-		query = "INSERT INTO chats (name) VALUES (?);"
-		_, err = db.Exec(query, cipherName)
+		//	ID_CHAT
+		idChatNonce, err := dbData.NewNonce(tx, idUser)
 		if err != nil {
 			return false
 		}
 
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return false
-	}
-	//	CREO IL MEMBRO DELLA CHAT
-	if password != "" {
-		memberKey := getKeyChaCha20FromMembers(idMember, password)
-
-		//	ID_CHAT
-		var nonce [24]byte
-		binary.BigEndian.PutUint64(nonce[0:8], idMember)
-		copy(nonce[8:16], []byte(password)[:8])
-		binary.BigEndian.PutUint64(nonce[16:24], idMember)
-		cipherIdChat, err := crypto.EncodeChaCha20(memberKey, nonce, []byte(strconv.FormatUint(chatId, 10)))
+		cipherIdChat, err := crypto.EncodeChaCha20(userMk, idChatNonce, []byte(strconv.FormatUint(chatId, 10)))
 		if err != nil {
 			return false
 		}
 
 		//	CHAT_KEY
-		copy(nonce[16:24], cipherIdChat)
-		cipherChatKey, err := crypto.EncodeChaCha20(memberKey, nonce, chatKey[:])
+		chatKeyNonce, err := dbData.NewNonce(tx, idUser)
+		if err != nil {
+			return false
+		}
+		cipherChatKey, err := crypto.EncodeChaCha20(userMk, chatKeyNonce, chatKey[:])
 		if err != nil {
 			return false
 		}
 
-		//	MSG_BEGIN
-		copy(nonce[8:24], cipherChatKey)
-		cipherMsgBegin, err := crypto.EncodeChaCha20(memberKey, nonce, []byte{0})
+		query := fmt.Sprintf(`
+			INSERT INTO %s (%s, %s, %s, %s, %s, %s) 
+			VALUES (?,?,?,?,?,?);`,
+			dbData.MembersChat, dbData.IdUser, dbData.IdChatHash, dbData.IdChat, dbData.IdChatNonce, dbData.ChatKey, dbData.ChatKeyNonce)
+		_, err = tx.Exec(query, idUser, idChatHash, cipherIdChat, idChatNonce, cipherChatKey, chatKeyNonce)
 		if err != nil {
-			return false
-		}
-
-		query = "INSERT INTO members_chat (id_user, id_chat, id_msg_begin, chat_key) VALUES (?,?,?,?);"
-		_, err = tx.Exec(query, idMember, cipherIdChat, cipherMsgBegin, cipherChatKey)
-		if err != nil {
-			tx.Rollback()
 			return false
 		}
 
 	} else {
 		var publicKey []byte
-		query = "SELECT public_key FROM users WHERE id = ?"
-		err := db.QueryRow(query, idMember).Scan(&publicKey)
-		if len(publicKey) != 33 {
-			return false
-		}
+		query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", dbData.PubKey, dbData.Users, dbData.Id)
+		err := tx.QueryRow(query, idUser).Scan(&publicKey)
 
 		cipherIdChat, err := crypto.EncodeECIES256(publicKey[:], []byte(strconv.FormatUint(chatId, 10)))
-		if err != nil {
-			return false
-		}
-		cipherMsgBegin, err := crypto.EncodeECIES256(publicKey[:], []byte{0})
 		if err != nil {
 			return false
 		}
@@ -128,14 +117,13 @@ func createChat(db *sql.DB, name string, idMember uint64, passwords ...string) b
 			return false
 		}
 
-		query = "INSERT INTO members_chat (id_user, id_chat, id_msg_begin, chat_key, key_flag) VALUES (?,?,?,?,?);"
-		_, err = tx.Exec(query, idMember, cipherIdChat, cipherMsgBegin, cipherChatKey, 1)
+		query = fmt.Sprintf(`
+			INSERT INTO %s (%s, %s, %s, %s, %s) 
+			VALUES (?,?,?,?,?);`, dbData.MembersChat, dbData.IdUser, dbData.IdChatHash, dbData.IdChat, dbData.ChatKey, dbData.KeyFlag)
+		_, err = tx.Exec(query, idUser, idChatHash, cipherIdChat, cipherChatKey, 1)
 		if err != nil {
-			tx.Rollback()
 			return false
 		}
 	}
-
-	err = tx.Commit()
-	return err == nil
+	return true
 }

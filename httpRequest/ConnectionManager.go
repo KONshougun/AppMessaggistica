@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/KONshougun/AppMessaggistica/databaseConnection"
+	"github.com/KONshougun/AppMessaggistica/dbData"
 )
 
 const (
@@ -29,7 +29,7 @@ func InitConnections(w http.ResponseWriter, r *http.Request) (*sql.DB, error) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return nil, fmt.Errorf("connection check failed")
 	}
-	db, err := databaseConnection.StartConnection()
+	db, err := dbData.StartConnection()
 	if err != nil {
 		fmt.Fprintf(w, `{"%s": connessione al database}`, Error)
 		return nil, err

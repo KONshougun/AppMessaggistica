@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/KONshougun/AppMessaggistica/httpRequest"
+	"github.com/joho/godotenv"
 )
 
 // ngrok http --domain=tops-actually-filly.ngrok-free.app 18854
@@ -31,7 +32,16 @@ const (
 	DeleteUser  string = "DeleteUser"
 )
 
+func loadEnv() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Errore nel caricare .env:", err)
+	}
+}
+
 func main() {
+	loadEnv()
+
 	http.HandleFunc("/"+SignIn, httpRequest.SignIn)
 	http.HandleFunc("/"+LogIn, httpRequest.LogIn)
 	http.HandleFunc("/"+CheckPassword, httpRequest.CheckPassword)
