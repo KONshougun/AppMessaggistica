@@ -1,4 +1,4 @@
-package httpRequest
+package handlers
 
 import (
 	"database/sql"
@@ -22,11 +22,10 @@ func RecoveryKey(id uint64, db *sql.DB) ([]byte, error) {
 	var recoveryMk []byte
 	var nonce []byte
 	query := fmt.Sprintf("SELECT %s, %s FROM %s WHERE %s = ?", dbData.RecoveryMk, dbData.ChatKeyNonce, dbData.Users, dbData.Id)
-	err := db.QueryRow(query, id).Scan(&recoveryMk, &nonce)
-	if err != nil {
+	if err := db.QueryRow(query, id).Scan(&recoveryMk, &nonce); err != nil {
 		return nil, err
 	}
-	decipherMk, err := crypto.DecodeAES(recoveryKey, nonce, recoveryMk)
+	decipherMk, err := crypto.DecodeChaCha20Poly1305(recoveryKey, nonce, recoveryMk)
 	if err != nil {
 		return nil, err
 	}

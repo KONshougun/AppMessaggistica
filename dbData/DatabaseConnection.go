@@ -19,7 +19,6 @@ const (
 	CipherMk     = "cipher_mk"
 	MkNonce      = "mk_nonce"
 	RecoveryMk   = "recovery_mk"
-	PubKey       = "pub_key"
 	FailedLogins = "failed_logins"
 )
 
@@ -36,12 +35,11 @@ const (
 
 // MEMBERS_CHAT
 const (
-	MembersChat  = "members_chat"
-	IdChatHash   = "id_chat_hash"
-	IdMsgBgn     = "id_msg_bgn"
-	ChatKey      = "chat_key"
-	ChatKeyNonce = "chat_key_nonce"
-	NeedUpdate   = "need_update"
+	MembersChat   = "members_chat"
+	IdMsgBgn      = "id_msg_bgn"
+	ChatKey       = "chat_key"
+	ChatKeyNonce  = "chat_key_nonce"
+	LastMsgReadId = "last_msg_read_id"
 )
 
 // CHATS
@@ -68,8 +66,15 @@ const (
 
 // NONCE LOGS
 const (
-	NonceLogs = "nonce_logs"
-	Nonce     = "nonce"
+	UsersNoncesLogs = "users_nonces_logs"
+	ChatsNoncesLogs = "chats_nonces_logs"
+	Nonce           = "nonce"
+)
+
+// ERRORS LOGS
+const (
+	ErrorsLogs = "errors_logs"
+	Log        = "log"
 )
 
 // GENERAL
@@ -111,7 +116,7 @@ type QueryRower interface {
 	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
-func NewNonce(qr QueryRower, idUser uint64) ([]byte, error) {
+func NewUserNonce(qr QueryRower, idUser uint64) ([]byte, error) {
 	query := fmt.Sprintf(`
 		WITH valore AS (
 			SELECT ? AS id, ? AS newNonce
@@ -132,16 +137,15 @@ func NewNonce(qr QueryRower, idUser uint64) ([]byte, error) {
 			UNION
 			SELECT 1
 			FROM %s, valore
-			WHERE %s = valore.newNonce
+			WHERE %s = valore.id %s = valore.newNonce
 		);
 	`, Contacts, IdUser, UsernameNonce, NicknameNonce, MembersChat, IdUser, IdChatNonce, ChatKeyNonce,
 		RemovedMessages, IdUser, IdMsgNonce, IdChatNonce,
-		NonceLogs, Nonce)
+		UsersNoncesLogs, IdUser, Nonce)
 	for {
-		nonce := make([]byte, 12)
+		nonce := make([]byte, 24)
 		_, err := rand.Read(nonce)
 		if err != nil {
-			fmt.Println("pino")
 			return nil, err
 		}
 
@@ -150,7 +154,50 @@ func NewNonce(qr QueryRower, idUser uint64) ([]byte, error) {
 		if err == sql.ErrNoRows {
 			return nonce, nil
 		} else if err != nil {
-			fmt.Println("ciuaooo")
+			return nil, err
+		}
+	}
+}
+func NewChatNonce(qr QueryRower, idChat uint64) ([]byte, error) {
+
+	//	------------------- DA FARE ---------------------------
+	query := fmt.Sprintf(`
+		WITH valore AS (
+			SELECT ? AS id, ? AS newNonce
+		)
+		SELECT 1
+		WHERE EXISTS (
+			SELECT 1
+			FROM %s, valore
+			WHERE %s = valore.id AND (%s = valore.newNonce OR %s = valore.newNonce)
+			UNION
+			SELECT 1
+			FROM %s, valore
+			WHERE %s = valore.id AND (%s = valore.newNonce OR %s = valore.newNonce)
+			UNION
+			SELECT 1
+			FROM %s, valore
+			WHERE %s = valore.id AND (%s = valore.newNonce OR %s = valore.newNonce)
+			UNION
+			SELECT 1
+			FROM %s, valore
+			WHERE %s = valore.id %s = valore.newNonce
+		);
+	`, Contacts, IdUser, UsernameNonce, NicknameNonce, MembersChat, IdUser, IdChatNonce, ChatKeyNonce,
+		RemovedMessages, IdUser, IdMsgNonce, IdChatNonce,
+		UsersNoncesLogs, IdUser, Nonce)
+	for {
+		nonce := make([]byte, 24)
+		_, err := rand.Read(nonce)
+		if err != nil {
+			return nil, err
+		}
+
+		var found bool
+		err = qr.QueryRow(query, idChat, nonce).Scan(&found)
+		if err == sql.ErrNoRows {
+			return nonce, nil
+		} else if err != nil {
 			return nil, err
 		}
 	}

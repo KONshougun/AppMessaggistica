@@ -3,34 +3,14 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
+	"net"
 
-	"github.com/KONshougun/AppMessaggistica/httpRequest"
+	"github.com/KONshougun/AppMessaggistica/handlers"
 	"github.com/joho/godotenv"
 )
 
 // ngrok http --domain=tops-actually-filly.ngrok-free.app 18854
 const PORT = ":18854"
-
-const (
-	SignIn        string = "SignIn"
-	LogIn         string = "LogIn"
-	CheckPassword string = "CheckPassword"
-	SetPassword   string = "SetPassword"
-	RemoveUser    string = "RemoveUser"
-
-	AddContact    string = "AddContact"
-	RemoveContact string = "RemoveContact"
-	SetBlockState string = "SetBlockState"
-	SetNickname   string = "SetNickname"
-	AddGroup      string = "AddGroup"
-	GetContacts   string = "GetContacts"
-
-	SendMessage string = "SendMessage"
-	GetChats    string = "GetChats"
-	ClearChat   string = "ClearChat"
-	DeleteUser  string = "DeleteUser"
-)
 
 func loadEnv() {
 	err := godotenv.Load()
@@ -42,30 +22,101 @@ func loadEnv() {
 func main() {
 	loadEnv()
 
-	http.HandleFunc("/"+SignIn, httpRequest.SignIn)
-	http.HandleFunc("/"+LogIn, httpRequest.LogIn)
-	http.HandleFunc("/"+CheckPassword, httpRequest.CheckPassword)
-	http.HandleFunc("/"+AddContact, httpRequest.AddContact)
-	http.HandleFunc("/"+GetContacts, httpRequest.GetContacts)
-	http.HandleFunc("/"+SetBlockState, httpRequest.SetBlockState)
-	http.HandleFunc("/"+SetNickname, httpRequest.SetNickname)
-	http.HandleFunc("/"+RemoveContact, httpRequest.RemoveContact)
-	http.HandleFunc("/"+SendMessage, httpRequest.SendMessage)
-
-	fmt.Println("Server HTTPS in ascolto sulla porta " + PORT)
-	err := http.ListenAndServe(PORT, nil)
-
+	ln, err := net.Listen("tcp", PORT)
 	if err != nil {
-		log.Fatal("Errore server HTTPS:", err)
+		fmt.Printf("errore durante l'ascolto su %s: %v\n", PORT, err)
+		return
+	}
+	defer ln.Close()
+
+	fmt.Printf("server in ascolto su %s\n", PORT)
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			fmt.Printf("errore accettando la connessione: %v\n", err)
+			continue
+		}
+
+		fmt.Printf("connessione da %s\n", conn.RemoteAddr())
+		go func() {
+			handleRequest(conn, 0)
+		}()
 	}
 }
 
-/*
-	http.HandleFunc("/"+AddGroup, signIn)
-	http.HandleFunc("/"+GetChats, signIn)
-	http.HandleFunc("/"+ClearChat, signIn)
-	http.HandleFunc("/"+RemoveMessage, signIn)
+func handleRequest(conn net.Conn, id uint64) {
+	defer conn.Close()
 
-	http.HandleFunc("/"+DeleteUser, signIn)
-	http.HandleFunc("/"+SetPassword, signIn)
-*/
+	connection := handlers.Conn{
+		Conn: conn,
+		Key:  nil,
+		Iv:   [24]byte{0},
+	}
+
+	//	HANDSHAKE
+	key, err := handlers.HandleHandshake(&connection)
+	if err != nil {
+		fmt.Println("Errore durante l'handshake")
+		fmt.Printf("err: %v\n", err)
+		return
+	}
+	connection.Key = key
+
+	//	LOG
+	var userKey []byte
+	for userKey == nil {
+		password := ""
+		action, msg, err := handlers.ReadHeader(&connection)
+		if err != nil {
+			fmt.Println("errore nella lettura dell'header")
+			fmt.Printf("err: %v\n", err)
+			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Errore nella lettura della richiesta"))
+			return
+		}
+		switch action {
+		case handlers.SIGN_IN:
+			id, password = handlers.SignIn(&connection, msg, id)
+		case handlers.SIGN_UP:
+			id, password = handlers.SignUp(&connection, msg, id)
+		default:
+			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Richiesta non valida"))
+		}
+
+		if password != "" {
+			userKey = handlers.AuthenticateUser(id, password)
+		}
+	}
+
+	//	RECORD
+	for {
+		action, msg, err := handlers.ReadHeader(&connection)
+		if err != nil {
+			fmt.Println("errore nella lettura dell'header")
+			fmt.Printf("err: %v\n", err)
+			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Errore nella lettura della richiesta"))
+			return
+		}
+		switch action {
+		case handlers.CHECK_PASSWORD:
+			handlers.CheckPassword(&connection, msg, id)
+		case handlers.ADD_CONTACT:
+			handlers.AddContact(&connection, msg, id, userKey)
+		case handlers.GET_CONTACTS:
+			handlers.GetContacts(&connection, msg, id, userKey)
+		case handlers.SEND_MESSAGE:
+			handlers.SendMessage(&connection, msg, id, userKey)
+		case handlers.SET_BLOCK:
+			handlers.SetBlockState(&connection, msg, id, userKey)
+		case handlers.REMOVE_CONTACT:
+			handlers.RemoveContact(&connection, msg, id, userKey)
+		case handlers.SET_NICKNAME:
+			handlers.SetNickname(&connection, msg, id, userKey)
+		case handlers.END_SESSION:
+			return
+		default:
+			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Richiesta non valida"))
+		}
+	}
+
+}

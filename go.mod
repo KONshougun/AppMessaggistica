@@ -7,6 +7,7 @@ require (
 	github.com/go-sql-driver/mysql v1.9.3
 	golang.org/x/crypto v0.46.0
 	github.com/joho/godotenv v1.5.1
+	github.com/cloudflare/circl v1.6.3
 )
 
 require (
