@@ -83,7 +83,6 @@ const (
 	IdUser      = "id_user"
 	IdChat      = "id_chat"
 	IdChatNonce = "id_chat_nonce"
-	KeyFlag     = "key_flag"
 )
 
 func StartConnection() (*sql.DB, error) {
@@ -104,8 +103,7 @@ func StartConnection() (*sql.DB, error) {
 	}
 
 	// Test connessione
-	err = db.Ping()
-	if err != nil {
+	if err = db.Ping(); err != nil {
 		fmt.Println(err)
 		return nil, err
 	}
@@ -116,7 +114,7 @@ type QueryRower interface {
 	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
-func NewUserNonce(qr QueryRower, idUser uint64) ([]byte, error) {
+func NewUserNonce(qr QueryRower, idUser uint64) []byte {
 	query := fmt.Sprintf(`
 		WITH valore AS (
 			SELECT ? AS id, ? AS newNonce
@@ -144,17 +142,15 @@ func NewUserNonce(qr QueryRower, idUser uint64) ([]byte, error) {
 		UsersNoncesLogs, IdUser, Nonce)
 	for {
 		nonce := make([]byte, 24)
-		_, err := rand.Read(nonce)
-		if err != nil {
-			return nil, err
+		if _, err := rand.Read(nonce); err != nil {
+			return nil
 		}
 
 		var found bool
-		err = qr.QueryRow(query, idUser, nonce).Scan(&found)
-		if err == sql.ErrNoRows {
-			return nonce, nil
-		} else if err != nil {
-			return nil, err
+		if err := qr.QueryRow(query, idUser, nonce).Scan(&found); err == sql.ErrNoRows {
+			return nonce
+		} else {
+			return nil
 		}
 	}
 }

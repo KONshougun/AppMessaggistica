@@ -41,11 +41,11 @@ func getContacts(id uint64, userKey []byte, db *sql.DB) []Contact {
 		if err != nil {
 			return nil
 		}
-		decipherUsernameBytes, err := crypto.DecodeChaCha20Poly1305(userKey, usernameNonce, cipherUsername)
+		decipherUsernameBytes, err := crypto.DecodeXChaCha20Poly1305(userKey, usernameNonce, cipherUsername)
 		if err != nil {
 			return nil
 		}
-		decipherNicknameBytes, err := crypto.DecodeChaCha20Poly1305(userKey, nicknameNonce, cipherNickname)
+		decipherNicknameBytes, err := crypto.DecodeXChaCha20Poly1305(userKey, nicknameNonce, cipherNickname)
 		if err != nil {
 			return nil
 		}
@@ -59,54 +59,56 @@ func getContacts(id uint64, userKey []byte, db *sql.DB) []Contact {
 	return contacts
 }
 
-func addContact(tx *sql.Tx, idUser, idContact uint64, usernameContact, nicknameContact string, userKey []byte, withSymCrypto bool) error {
+func addContact(tx *sql.Tx, idUser uint64, usernameContact, nicknameContact string, userKey []byte) error {
 
-	if withSymCrypto {
-		usernameNonce, err := dbData.NewUserNonce(tx, idUser)
-		if err != nil {
-			return err
+	if userKey == nil {
+		userKey = GetUserKey(tx, idUser)
+		if userKey == nil {
+			return fmt.Errorf("Errore nell'ottenimento della chiave dell'utente")
 		}
-		usernameCipher, err := crypto.EncodeChaCha20Poly1305(userKey, usernameNonce, []byte(usernameContact))
-		if err != nil {
-			return err
-		}
-		usernameHash, err := crypto.EncodeHmacSha256(usernameContact)
-		if err != nil {
-			return err
-		}
+	}
 
-		nicknameNonce, err := dbData.NewUserNonce(tx, idUser)
-		if err != nil {
+	usernameNonce := dbData.NewUserNonce(tx, idUser)
+	if usernameNonce == nil {
+		return fmt.Errorf("Errore nell'ottenimento dello user nonce")
+	}
+	usernameCipher, err := crypto.EncodeChaCha20Poly1305(userKey, usernameNonce, []byte(usernameContact))
+	if err != nil {
+		return err
+	}
+	usernameHash, err := crypto.EncodeHmacSha256(usernameContact)
+	if err != nil {
+		return err
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO %s (%s, %s, %s, %s, %s, %s) 
+		VALUES (?,?,?,?,?,?);`,
+		dbData.Contacts, dbData.IdUser, dbData.UsernameHash, dbData.UsernameContact, dbData.UsernameNonce)
+	if _, err = tx.Exec(query, idUser, usernameHash, usernameCipher, usernameNonce); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if nicknameContact != "" {
+		nicknameNonce := dbData.NewUserNonce(tx, idUser)
+		if nicknameNonce != nil {
+			return fmt.Errorf("Errore nell'ottenimento del nickname nonce")
 		}
 		nicknameCipher, err := crypto.EncodeChaCha20Poly1305(userKey, nicknameNonce, []byte(nicknameContact))
 		if err != nil {
 			return err
 		}
-
-		query := fmt.Sprintf(`
-		INSERT INTO %s (%s, %s, %s, %s, %s, %s) 
-		VALUES (?,?,?,?,?,?);`,
-			dbData.Contacts, dbData.IdUser, dbData.UsernameHash, dbData.UsernameContact, dbData.UsernameNonce, dbData.Nickname, dbData.NicknameNonce)
-		if _, err = tx.Exec(query, idUser, usernameHash, usernameCipher, usernameNonce, nicknameCipher, nicknameNonce); err != nil {
-			tx.Rollback()
-			return err
-		}
-	} else {
-		cipherUsername, err := crypto.EncodeECIES256(userKey, []byte(usernameContact))
-		if err != nil {
-			return err
-		}
-		usernameHash, err := crypto.EncodeHmacSha256(usernameContact)
-		if err != nil {
-			return err
-		}
-
-		query := fmt.Sprintf("INSERT INTO %s (%s, %s, %s, %s) VALUES (?,?,?,?);", dbData.Contacts, dbData.IdUser, dbData.UsernameHash, dbData.UsernameContact, dbData.KeyFlag)
-		if _, err = tx.Exec(query, idContact, usernameHash, cipherUsername, 1); err != nil {
+		query = fmt.Sprintf(`
+			UPDATE %s
+			SET %s = ?, %s = ?;
+			WHERE %s = ?, %s = ?`,
+			dbData.Contacts, dbData.Nickname, dbData.NicknameNonce, dbData.IdUser, dbData.UsernameHash)
+		if _, err = tx.Exec(query, nicknameCipher, nicknameNonce, idUser, usernameHash); err != nil {
 			tx.Rollback()
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -127,10 +129,10 @@ func AddContact(conn *Conn, msg string, id uint64, userKey []byte) {
 
 	//CONTROLLO SE STA AGGIUNGENDO SE STESSO
 	var contactId uint64
-	query := fmt.Sprintf(`SELECT %s, %s FROM %s WHERE %s = ?;`,
-		dbData.Id, dbData.PubKey, dbData.Users, dbData.Username)
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE %s = ?;`,
+		dbData.Id, dbData.Users, dbData.Username)
 
-	if err = db.QueryRow(query, contactUsername).Scan(&contactId, &contactPublicKey); err != nil {
+	if err = db.QueryRow(query, contactUsername).Scan(&contactId); err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore richiesta al database"))
 		return
 	}
@@ -156,7 +158,7 @@ func AddContact(conn *Conn, msg string, id uint64, userKey []byte) {
 			return
 		}
 	}
-	if err = addContact(tx, id, contactId, contactUsername, nickname, userKey, true); err != nil {
+	if err = addContact(tx, id, contactUsername, nickname, userKey); err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nell'aggiunta del contatto"))
 		return
 	}
@@ -185,7 +187,7 @@ func AddContact(conn *Conn, msg string, id uint64, userKey []byte) {
 			SendPacket(conn, ERROR, false, []byte(err.Error()))
 			return
 		} else {
-			if err = addContact(tx, contactId, id, username, "", contactPublicKey, false); err != nil {
+			if err = addContact(tx, contactId, username, "", nil); err != nil {
 				tx.Rollback()
 				SendPacket(conn, ERROR, false, []byte("Errore nell'aggiunta del contatto al contatto"))
 				return
@@ -230,8 +232,8 @@ func AddContact(conn *Conn, msg string, id uint64, userKey []byte) {
 			SendPacket(conn, ERROR, false, []byte(err.Error()))
 			return
 		}
-		if !newMember(tx, chatId, chatKey, id, userKey, true) ||
-			!newMember(tx, chatId, chatKey, contactId, contactPublicKey, false) {
+		if !newMember(tx, chatId, chatKey, id, userKey) ||
+			!newMember(tx, chatId, chatKey, contactId, nil) {
 			tx.Rollback()
 			SendPacket(conn, ERROR, false, []byte(err.Error()))
 			return
@@ -342,9 +344,9 @@ func SetNickname(conn *Conn, msg string, id uint64, userKey []byte) {
 		return
 	}
 
-	newNicknameNonce, err := dbData.NewUserNonce(db, id)
-	if err != nil {
-		SendPacket(conn, ERROR, false, []byte(err.Error()))
+	newNicknameNonce := dbData.NewUserNonce(db, id)
+	if newNicknameNonce == nil {
+		SendPacket(conn, ERROR, false, []byte("Errore nella creazione del nuovo nickname nonce"))
 		return
 	}
 	newCipherNick, err := crypto.EncodeChaCha20Poly1305(userKey, newNicknameNonce, []byte(newNickname))

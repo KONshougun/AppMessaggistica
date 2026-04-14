@@ -29,7 +29,7 @@ func SendMessage(conn *Conn, msg string, id uint64, userKey []byte) {
 		return
 	}
 	message := msgParams[1]
-	if len(message)>1000{
+	if len(message) > 1000 {
 		SendPacket(conn, ERROR, false, []byte("Errore messaggio troppo lungo"))
 		return
 	}
@@ -46,7 +46,7 @@ func SendMessage(conn *Conn, msg string, id uint64, userKey []byte) {
 		SendPacket(conn, ERROR, false, []byte("Errore ricerca della chiave della chat nel database"))
 		return
 	}
-	chatKey, err := crypto.DecodeChaCha20Poly1305(userKey, chatKeyNonce, cipherChatKey)
+	chatKey, err := crypto.DecodeXChaCha20Poly1305(userKey, chatKeyNonce, cipherChatKey)
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nella verifica dell'appartenenza alla chat"))
 		return

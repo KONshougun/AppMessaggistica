@@ -60,7 +60,6 @@ const (
 	GET_CHATS_PROGRESS
 	GET_CHATS_END
 
-
 	//Other
 	RESET_KEY
 	SUCCESS
@@ -160,7 +159,7 @@ func ReadHeader(conn *Conn) (byte, string, error) {
 			//resetKey(conn)
 			return 0, "", fmt.Errorf("nonce non valido")
 		}
-		msg, err := crypto.DecodeChaCha20Poly1305(conn.Key, nonce, text)
+		msg, err := crypto.DecodeXChaCha20Poly1305(conn.Key, nonce, text)
 		if err != nil {
 			SendPacket(conn, ERROR, false, []byte("Errore nel decifrare il messaggio"))
 			return 0, "", fmt.Errorf("Errore nel decifrare il messaggio")

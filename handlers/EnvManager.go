@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/KONshougun/AppMessaggistica/crypto"
+	"github.com/KONshougun/AppMessaggistica/dbData"
 )
 
 func getEnvKey() []byte {
@@ -29,7 +30,7 @@ func getEnvNonce() []byte {
 // Cripta la MK
 func EncryptMK(clientId uint64, clientNonce []byte, plaintext []byte) []byte {
 	key := getEnvKey()
-	if len(key) != 32{
+	if len(key) != 32 {
 		fmt.Println("Chiave")
 		return nil
 	}
@@ -52,15 +53,53 @@ func EncryptMK(clientId uint64, clientNonce []byte, plaintext []byte) []byte {
 	return cipherText
 }
 
+func GetUserKey(qr dbData.QueryRower, idUser uint64) []byte {
+
+	//	RIPRENDO LA CHIAVE CRIPTATA
+	query := fmt.Sprintf(`
+		SELECT %s, %s
+		FROM %s
+		WHERE %s = ?
+		);
+	`, dbData.RecoveryMk, dbData.MkNonce, dbData.Users, dbData.Id)
+	var recoveryKey, nonce []byte
+	if err := qr.QueryRow(query, idUser).Scan(&recoveryKey, &nonce); err != nil {
+		return nil
+	}
+
+	userKey := DecryptMK(nonce, recoveryKey)
+	return userKey
+}
+
 func DecryptMK(nonce []byte, ciphertext []byte) []byte {
 	key := getEnvKey()
 	if key == nil {
 		return nil
 	}
 
-	plaintext, err := crypto.DecodeChaCha20Poly1305(key, nonce, ciphertext)
+	plaintext, err := crypto.DecodeXChaCha20Poly1305(key, nonce, ciphertext)
 	if err != nil {
 		return nil
 	}
 	return plaintext
 }
+
+/*func RecoveryKey(id uint64) ([]byte, error) {
+	recoveryKey := []byte(os.Getenv("RECOVERY_KEY"))
+
+	if len(recoveryKey) != 32 {
+		return nil, fmt.Errorf("recovery key non impostata nel server")
+	}
+
+	var recoveryMk []byte
+	var nonce []byte
+	query := fmt.Sprintf("SELECT %s, %s FROM %s WHERE %s = ?", dbData.RecoveryMk, dbData.ChatKeyNonce, dbData.Users, dbData.Id)
+	if err := db.QueryRow(query, id).Scan(&recoveryMk, &nonce); err != nil {
+		return nil, err
+	}
+	decipherMk, err := crypto.DecodeXChaCha20Poly1305(recoveryKey, nonce, recoveryMk)
+	if err != nil {
+		return nil, err
+	}
+	return decipherMk, nil
+}*/

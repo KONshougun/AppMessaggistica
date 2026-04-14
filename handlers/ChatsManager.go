@@ -65,44 +65,31 @@ func newChatKey() ([32]byte, error) {
 	return key, nil
 }
 
-func newMember(tx *sql.Tx, chatId uint64, chatKey [32]byte, idUser uint64, userMk []byte, withSymCrypto bool) bool {
-	if withSymCrypto {
-
-		//	CHAT_KEY
-		chatKeyNonce, err := dbData.NewUserNonce(tx, idUser)
-		if err != nil {
+func newMember(tx *sql.Tx, chatId uint64, chatKey [32]byte, idUser uint64, userKey []byte) bool {
+	if userKey == nil {
+		userKey = GetUserKey(tx, idUser)
+		if userKey == nil {
 			return false
 		}
-		cipherChatKey, err := crypto.EncodeChaCha20Poly1305(userMk, chatKeyNonce, chatKey[:])
-		if err != nil {
-			return false
-		}
+	}
 
-		query := fmt.Sprintf(`
+	//	CHAT_KEY
+	chatKeyNonce := dbData.NewUserNonce(tx, idUser)
+	if chatKeyNonce == nil {
+		return false
+	}
+	cipherChatKey, err := crypto.EncodeChaCha20Poly1305(userKey, chatKeyNonce, chatKey[:])
+	if err != nil {
+		return false
+	}
+
+	query := fmt.Sprintf(`
 			INSERT INTO %s (%s, %s, %s, %s, %s, %s) 
-			VALUES (?,?,?,?,?,?);`,
-			dbData.MembersChat, dbData.IdUser, dbData.IdChat, dbData.ChatKey, dbData.ChatKeyNonce)
-		_, err = tx.Exec(query, idUser, chatId, cipherChatKey, chatKeyNonce)
-		if err != nil {
-			return false
-		}
-
-	} else {
-		query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", dbData.PubKey, dbData.Users, dbData.Id)
-		err := tx.QueryRow(query, idUser).Scan(&publicKey)
-
-		cipherChatKey, err := crypto.EncodeECIES256(publicKey[:], chatKey[:])
-		if err != nil {
-			return false
-		}
-
-		query = fmt.Sprintf(`
-			INSERT INTO %s (%s, %s, %s, %s, %s) 
-			VALUES (?,?,?,?,?);`, dbData.MembersChat, dbData.IdUser, dbData.IdChat, dbData.ChatKey, dbData.KeyFlag)
-		_, err = tx.Exec(query, idUser, chatId, cipherChatKey, 1)
-		if err != nil {
-			return false
-		}
+			VALUES (?,?,?,?,?,?);
+		`,
+		dbData.MembersChat, dbData.IdUser, dbData.IdChat, dbData.ChatKey, dbData.ChatKeyNonce)
+	if _, err = tx.Exec(query, idUser, chatId, cipherChatKey, chatKeyNonce); err != nil {
+		return false
 	}
 	return true
 }

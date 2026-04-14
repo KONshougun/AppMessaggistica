@@ -29,7 +29,7 @@ func getKeys(id uint64, password string) ([]byte, []byte, []byte, []byte, []byte
 	MK := make([]byte, 32)
 	rand.Read(MK)
 	KEK := argon2.IDKey([]byte(password), pwdSalt, 1, 64*1024, 4, 32)
-	aead, err := chacha20poly1305.New(KEK)
+	aead, err := chacha20poly1305.NewX(KEK)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
