@@ -46,7 +46,7 @@ func SendMessage(conn *Conn, msg string, id uint64, userKey []byte) {
 		SendPacket(conn, ERROR, false, []byte("Errore ricerca della chiave della chat nel database"))
 		return
 	}
-	chatKey, err := crypto.DecodeXChaCha20Poly1305(userKey, chatKeyNonce, cipherChatKey)
+	chatKey, err := crypto.DecryptXChaCha20Poly1305(userKey, chatKeyNonce, cipherChatKey)
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nella verifica dell'appartenenza alla chat"))
 		return
@@ -67,7 +67,7 @@ func SendMessage(conn *Conn, msg string, id uint64, userKey []byte) {
 		SendPacket(conn, ERROR, false, []byte(err.Error()))
 		return
 	}
-	cipherMsg, err := crypto.EncodeChaCha20Poly1305(chatKey, messageNonce[:], []byte(message))
+	cipherMsg, err := crypto.EncryptXChaCha20Poly1305(chatKey, messageNonce[:], []byte(message))
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nella crittografia del messaggio"))
 		return

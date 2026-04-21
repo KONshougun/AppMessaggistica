@@ -64,14 +64,15 @@ func AuthenticateUser(id uint64, password string) []byte {
 	}
 
 	var pwdHash, pwdSalt, cipherMk, mkNonce []byte
-	query := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = ?;", dbData.PwdHash, dbData.PwdSalt, dbData.CipherMk, dbData.MkNonce, dbData.Users, dbData.Id)
+	query := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = ?;",
+		dbData.PwdHash, dbData.PwdSalt, dbData.CipherMk, dbData.MkNonce, dbData.Users, dbData.Id)
 	err = db.QueryRow(query, id).Scan(&pwdHash, &pwdSalt, &cipherMk, &mkNonce)
 	if err != nil || !checkPassword([]byte(password), pwdSalt, pwdHash) {
 		return nil
 	}
 
 	KEK := argon2.IDKey([]byte(password), pwdSalt, 1, 64*1024, 4, 32)
-	aead, err := chacha20poly1305.New(KEK)
+	aead, err := chacha20poly1305.NewX(KEK)
 	if err != nil {
 		return nil
 	}
@@ -99,7 +100,7 @@ func signHandler(msg string) (*sql.DB, string, string, error) {
 	return db, username, password, nil
 }
 
-func SignIn(conn *Conn, msg string, id uint64) (uint64, string) {
+func SignIn(conn *Conn, msg string) (uint64, string) {
 	fmt.Println("SignIn")
 
 	db, username, password, err := signHandler(msg)
@@ -113,12 +114,17 @@ func SignIn(conn *Conn, msg string, id uint64) (uint64, string) {
 
 	var found bool
 	query := fmt.Sprintf("SELECT 1 FROM %s WHERE %s = ? LIMIT 1;", dbData.Users, dbData.Username)
-	err = db.QueryRow(query, username).Scan(&found)
-	if err == nil {
+	if err = db.QueryRow(query, username).Scan(&found); err == nil {
 		SendPacket(conn, ERROR, false, []byte("Username già esistente"))
 		return 0, ""
 	} else if err != sql.ErrNoRows {
 		SendPacket(conn, ERROR, false, []byte("Errore nella richiesta al database"))
+		return 0, ""
+	}
+
+	var id uint64
+	if err = db.QueryRow("SELECT MAX(id) FROM users").Scan(&id); err != nil{
+		SendPacket(conn, ERROR, false, []byte("Errore nell'ottenimento dell'id"))
 		return 0, ""
 	}
 
@@ -141,21 +147,13 @@ func SignIn(conn *Conn, msg string, id uint64) (uint64, string) {
 		return 0, ""
 	}
 
-	var idApp uint64
-	query = fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?;", dbData.Id, dbData.Users, dbData.Username)
-	err = db.QueryRow(query, username).Scan(&idApp)
-	if err != nil {
-		SendPacket(conn, ERROR, false, []byte("Errore ottenimento dell'id dal database"))
-		return 0, ""
-	}
-
 	//FORSE DA TOGLIERE  (FORSE NON è DA TOGLIERE) (SICURAMENTE I DATI SONO DA CRIPTARE)
-	SendPacket(conn, SIGN_RESPONSE, false, []byte(fmt.Sprintf("%v", idApp)))
+	SendPacket(conn, SIGN_RESPONSE, false, []byte(fmt.Sprintf("%v", id)))
 
 	return id, password
 }
 
-func SignUp(conn *Conn, msg string, id uint64) (uint64, string) {
+func SignUp(conn *Conn, msg string) (uint64, string) {
 	fmt.Println("SignUp")
 
 	db, username, password, err := signHandler(msg)
@@ -167,14 +165,14 @@ func SignUp(conn *Conn, msg string, id uint64) (uint64, string) {
 	}
 	defer db.Close()
 
-	var idApp uint64
+	var id uint64
 	var pwdSalt, pwdHash []byte
 	var failedLogins uint8
 	query := fmt.Sprintf(`
 		SELECT %s, %s, %s, %s
 		FROM %s 
 		WHERE %s = ?;`, dbData.Id, dbData.PwdSalt, dbData.PwdHash, dbData.FailedLogins, dbData.Users, dbData.Username)
-	err = db.QueryRow(query, username).Scan(&idApp, &pwdSalt, &pwdHash, &failedLogins)
+	err = db.QueryRow(query, username).Scan(&id, &pwdSalt, &pwdHash, &failedLogins)
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore ottenimento dell'id dal database"))
 		return 0, ""
@@ -182,18 +180,18 @@ func SignUp(conn *Conn, msg string, id uint64) (uint64, string) {
 
 	if checkPassword([]byte(password), pwdSalt, pwdHash) {
 		query = fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ?;", dbData.Users, dbData.FailedLogins, dbData.Id)
-		_, err = db.Exec(query, 0, idApp)
+		_, err = db.Exec(query, 0, id)
 		if err != nil {
 			SendPacket(conn, ERROR, false, []byte("Errore nell'aggiornamento dei tentativi falliti"))
 			return 0, ""
 		}
-		if updateLog(idApp, db) != nil {
+		if updateLog(id, db) != nil {
 			SendPacket(conn, ERROR, false, []byte("Errore richiesta al database"))
 			return 0, ""
 		}
 	} else {
 		query = fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ?;", dbData.Users, dbData.FailedLogins, dbData.Id)
-		_, err = db.Exec(query, failedLogins+1, idApp)
+		_, err = db.Exec(query, failedLogins+1, id)
 		if err != nil {
 			SendPacket(conn, ERROR, false, []byte("Errore nell'aggiornamento dei tentativi falliti"))
 			return 0, ""
@@ -203,7 +201,7 @@ func SignUp(conn *Conn, msg string, id uint64) (uint64, string) {
 	}
 
 	//FORSE DA TOGLIERE
-	SendPacket(conn, SIGN_RESPONSE, false, []byte(fmt.Sprintf("%v", idApp)))
+	SendPacket(conn, SIGN_RESPONSE, false, []byte(fmt.Sprintf("%v", id)))
 	return id, password
 }
 

@@ -41,7 +41,7 @@ func newChat(tx *sql.Tx, name string) (uint64, [32]byte) {
 	var cipherName []byte = nil
 	if name != "" {
 		var chatNonce [24]byte
-		cipherName, err = crypto.EncodeChaCha20Poly1305(chatKey[:], chatNonce[:], []byte(name))
+		cipherName, err = crypto.EncryptXChaCha20Poly1305(chatKey[:], chatNonce[:], []byte(name))
 		if err != nil {
 			return 0, [32]byte{}
 		}
@@ -78,7 +78,7 @@ func newMember(tx *sql.Tx, chatId uint64, chatKey [32]byte, idUser uint64, userK
 	if chatKeyNonce == nil {
 		return false
 	}
-	cipherChatKey, err := crypto.EncodeChaCha20Poly1305(userKey, chatKeyNonce, chatKey[:])
+	cipherChatKey, err := crypto.EncryptXChaCha20Poly1305(userKey, chatKeyNonce, chatKey[:])
 	if err != nil {
 		return false
 	}

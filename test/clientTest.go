@@ -29,7 +29,7 @@ func main() {
 	//auth(conn, key, nonce, handlers.SIGN_IN, "Paolo", "pwd123456")
 	auth(conn, key, nonce, handlers.SIGN_UP, "Giuseppe", "pwd123456")
 	addContact(conn, key, nonce, handlers.ADD_CONTACT, "Paolo", "Paolino")
-	for{
+	for {
 		time.Sleep(5 * time.Second)
 	}
 	//SendMsg(conn, handlers.END_SESSION, nil, nil)
@@ -71,7 +71,7 @@ func auth(conn net.Conn, key, nonce []byte, t byte, u, p string) {
 
 	plain := []byte(u + ";" + p)
 	nonce[0]++
-	cipher, _ := appcrypto.EncodeChaCha20Poly1305(key, nonce, plain)
+	cipher, _ := appcrypto.EncryptXChaCha20Poly1305(key, nonce, plain)
 
 	SendMsg(conn, t, nonce, cipher)
 
@@ -83,7 +83,7 @@ func addContact(conn net.Conn, key, nonce []byte, t byte, username, nickname str
 
 	plain := []byte(username + ";" + nickname)
 	nonce[0]++
-	cipher, _ := appcrypto.EncodeChaCha20Poly1305(key, nonce, plain)
+	cipher, _ := appcrypto.EncryptXChaCha20Poly1305(key, nonce, plain)
 
 	SendMsg(conn, t, nonce, cipher)
 

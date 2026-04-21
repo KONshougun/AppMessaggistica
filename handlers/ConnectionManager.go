@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -127,13 +128,17 @@ text
 error
 */
 func ReadHeader(conn *Conn) (byte, string, error) {
-	header := make([]byte, 4)
+	header := make([]byte, 7)
 	if _, err := io.ReadFull(conn.Conn, header); err != nil {
 		return 0, "", err
 	}
-	action := header[0]
-	length := binary.BigEndian.Uint16(header[1:3])
-	hasNonce := header[3] == 1
+	if !bytes.Equal(header[0:3], []byte("kon")) {
+		return 0, "", fmt.Errorf("Errore messaggio ricevuto non valido")
+	}
+
+	action := header[3]
+	length := binary.BigEndian.Uint16(header[4:6])
+	hasNonce := header[6] == 1
 
 	if length == 0 {
 		return action, "", nil
@@ -159,7 +164,7 @@ func ReadHeader(conn *Conn) (byte, string, error) {
 			//resetKey(conn)
 			return 0, "", fmt.Errorf("nonce non valido")
 		}
-		msg, err := crypto.DecodeXChaCha20Poly1305(conn.Key, nonce, text)
+		msg, err := crypto.DecryptXChaCha20Poly1305(conn.Key, nonce, text)
 		if err != nil {
 			SendPacket(conn, ERROR, false, []byte("Errore nel decifrare il messaggio"))
 			return 0, "", fmt.Errorf("Errore nel decifrare il messaggio")
@@ -172,9 +177,10 @@ func ReadHeader(conn *Conn) (byte, string, error) {
 }
 
 func SendPacket(conn *Conn, action byte, hasNonce bool, msg []byte) bool {
+	salt := "kon"
 	msgLen := uint16(len(msg))
 
-	if msgLen > 60000 {
+	if msgLen > 10000 {
 		fmt.Println("Messaggio troppo lungo")
 		return false
 	}
@@ -188,19 +194,19 @@ func SendPacket(conn *Conn, action byte, hasNonce bool, msg []byte) bool {
 		}
 		conn.Iv[0]++
 
-		buffer = make([]byte, 4+24+msgLen) // 4 header + msg + 24 nonce
-		buffer[3] = 1
+		buffer = make([]byte, 8+24+msgLen) // 8 header + msg + 24 nonce
+		buffer[6] = 1
 		copy(buffer[4+msgLen:], conn.Iv[:])
 	} else {
-		buffer = make([]byte, 4+msgLen) // 4 header + msg
-		buffer[3] = 0
+		buffer = make([]byte, 8+msgLen) // 8 header + msg
+		buffer[6] = 0
 	}
-	buffer[0] = action
-	binary.BigEndian.PutUint16(buffer[1:3], msgLen)
-	copy(buffer[4:4+msgLen], msg)
+	copy(buffer[0:3], []byte(salt))
+	buffer[3] = action
+	binary.BigEndian.PutUint16(buffer[4:6], msgLen)
+	copy(buffer[7:8+msgLen], msg)
 
-	_, err := conn.Conn.Write(buffer)
-	if err != nil {
+	if _, err := conn.Conn.Write(buffer); err != nil {
 		fmt.Printf("Errore durante l'invio del messaggio: %v\n", err)
 	}
 	return true

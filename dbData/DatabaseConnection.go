@@ -127,7 +127,7 @@ func NewUserNonce(qr QueryRower, idUser uint64) []byte {
 			UNION
 			SELECT 1
 			FROM %s, valore
-			WHERE %s = valore.id AND (%s = valore.newNonce OR %s = valore.newNonce)
+			WHERE %s = valore.id AND %s = valore.newNonce
 			UNION
 			SELECT 1
 			FROM %s, valore
@@ -135,14 +135,16 @@ func NewUserNonce(qr QueryRower, idUser uint64) []byte {
 			UNION
 			SELECT 1
 			FROM %s, valore
-			WHERE %s = valore.id %s = valore.newNonce
+			WHERE %s = valore.id AND %s = valore.newNonce
 		);
-	`, Contacts, IdUser, UsernameNonce, NicknameNonce, MembersChat, IdUser, IdChatNonce, ChatKeyNonce,
+	`, 	Contacts, IdUser, UsernameNonce, NicknameNonce,
+		MembersChat, IdUser, ChatKeyNonce,
 		RemovedMessages, IdUser, IdMsgNonce, IdChatNonce,
 		UsersNoncesLogs, IdUser, Nonce)
 	for {
 		nonce := make([]byte, 24)
 		if _, err := rand.Read(nonce); err != nil {
+			fmt.Printf("err: %v\n", err)
 			return nil
 		}
 
@@ -150,6 +152,7 @@ func NewUserNonce(qr QueryRower, idUser uint64) []byte {
 		if err := qr.QueryRow(query, idUser, nonce).Scan(&found); err == sql.ErrNoRows {
 			return nonce
 		} else {
+			fmt.Printf("err: %v\n", err)
 			return nil
 		}
 	}

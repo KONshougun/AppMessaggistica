@@ -45,7 +45,7 @@ func EncryptMK(clientId uint64, clientNonce []byte, plaintext []byte) []byte {
 	binary.LittleEndian.PutUint64(nonce[8:16], clientId)
 	copy(nonce[16:], clientNonce)
 
-	cipherText, err := crypto.EncodeChaCha20Poly1305(key, nonce, plaintext)
+	cipherText, err := crypto.EncryptXChaCha20Poly1305(key, nonce, plaintext)
 	if err != nil {
 		fmt.Println("crypto")
 		return nil
@@ -77,7 +77,7 @@ func DecryptMK(nonce []byte, ciphertext []byte) []byte {
 		return nil
 	}
 
-	plaintext, err := crypto.DecodeXChaCha20Poly1305(key, nonce, ciphertext)
+	plaintext, err := crypto.DecryptXChaCha20Poly1305(key, nonce, ciphertext)
 	if err != nil {
 		return nil
 	}

@@ -58,7 +58,6 @@ func handleRequest(conn net.Conn, id uint64) {
 	key, err := handlers.HandleHandshake(&connection)
 	if err != nil {
 		fmt.Println("Errore durante l'handshake")
-		fmt.Printf("err: %v\n", err)
 		return
 	}
 	connection.Key = key
@@ -70,21 +69,33 @@ func handleRequest(conn net.Conn, id uint64) {
 		action, msg, err := handlers.ReadHeader(&connection)
 		if err != nil {
 			fmt.Println("errore nella lettura dell'header")
-			fmt.Printf("err: %v\n", err)
 			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Errore nella lettura della richiesta"))
 			return
 		}
 		switch action {
 		case handlers.SIGN_IN:
-			id, password = handlers.SignIn(&connection, msg, id)
+			id, password = handlers.SignIn(&connection, msg)
+			if password == "" {
+				fmt.Println("Errore nell'ottenimento della password")
+			}
 		case handlers.SIGN_UP:
-			id, password = handlers.SignUp(&connection, msg, id)
+			id, password = handlers.SignUp(&connection, msg)
+			fmt.Printf("id: %v\n", id)
+			fmt.Printf("password: %v\n", password)
+			if password == "" {
+				fmt.Println("Errore nell'ottenimento della password")
+			}
+		case handlers.END_SESSION:
+			return;
 		default:
 			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Richiesta non valida"))
 		}
 
 		if password != "" {
 			userKey = handlers.AuthenticateUser(id, password)
+			if userKey == nil{
+				fmt.Println("Errore nell'ottenimento della chiave")
+			}
 		}
 	}
 
@@ -97,6 +108,7 @@ func handleRequest(conn net.Conn, id uint64) {
 			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Errore nella lettura della richiesta"))
 			return
 		}
+		fmt.Printf("action: %v\n", action)
 		switch action {
 		case handlers.CHECK_PASSWORD:
 			handlers.CheckPassword(&connection, msg, id)

@@ -41,11 +41,11 @@ func getContacts(id uint64, userKey []byte, db *sql.DB) []Contact {
 		if err != nil {
 			return nil
 		}
-		decipherUsernameBytes, err := crypto.DecodeXChaCha20Poly1305(userKey, usernameNonce, cipherUsername)
+		decipherUsernameBytes, err := crypto.DecryptXChaCha20Poly1305(userKey, usernameNonce, cipherUsername)
 		if err != nil {
 			return nil
 		}
-		decipherNicknameBytes, err := crypto.DecodeXChaCha20Poly1305(userKey, nicknameNonce, cipherNickname)
+		decipherNicknameBytes, err := crypto.DecryptXChaCha20Poly1305(userKey, nicknameNonce, cipherNickname)
 		if err != nil {
 			return nil
 		}
@@ -72,7 +72,7 @@ func addContact(tx *sql.Tx, idUser uint64, usernameContact, nicknameContact stri
 	if usernameNonce == nil {
 		return fmt.Errorf("Errore nell'ottenimento dello user nonce")
 	}
-	usernameCipher, err := crypto.EncodeChaCha20Poly1305(userKey, usernameNonce, []byte(usernameContact))
+	usernameCipher, err := crypto.EncryptXChaCha20Poly1305(userKey, usernameNonce, []byte(usernameContact))
 	if err != nil {
 		return err
 	}
@@ -82,8 +82,8 @@ func addContact(tx *sql.Tx, idUser uint64, usernameContact, nicknameContact stri
 	}
 
 	query := fmt.Sprintf(`
-		INSERT INTO %s (%s, %s, %s, %s, %s, %s) 
-		VALUES (?,?,?,?,?,?);`,
+		INSERT INTO %s (%s, %s, %s, %s) 
+		VALUES (?,?,?,?);`,
 		dbData.Contacts, dbData.IdUser, dbData.UsernameHash, dbData.UsernameContact, dbData.UsernameNonce)
 	if _, err = tx.Exec(query, idUser, usernameHash, usernameCipher, usernameNonce); err != nil {
 		tx.Rollback()
@@ -94,7 +94,7 @@ func addContact(tx *sql.Tx, idUser uint64, usernameContact, nicknameContact stri
 		if nicknameNonce != nil {
 			return fmt.Errorf("Errore nell'ottenimento del nickname nonce")
 		}
-		nicknameCipher, err := crypto.EncodeChaCha20Poly1305(userKey, nicknameNonce, []byte(nicknameContact))
+		nicknameCipher, err := crypto.EncryptXChaCha20Poly1305(userKey, nicknameNonce, []byte(nicknameContact))
 		if err != nil {
 			return err
 		}
@@ -159,7 +159,8 @@ func AddContact(conn *Conn, msg string, id uint64, userKey []byte) {
 		}
 	}
 	if err = addContact(tx, id, contactUsername, nickname, userKey); err != nil {
-		SendPacket(conn, ERROR, false, []byte("Errore nell'aggiunta del contatto"))
+		fmt.Printf("err: %v\n", err)
+		SendPacket(conn, ERROR, false, []byte("Errore nell'aggiunta del primo contatto"))
 		return
 	}
 
@@ -188,8 +189,9 @@ func AddContact(conn *Conn, msg string, id uint64, userKey []byte) {
 			return
 		} else {
 			if err = addContact(tx, contactId, username, "", nil); err != nil {
+				fmt.Printf("err: %v\n", err)
 				tx.Rollback()
-				SendPacket(conn, ERROR, false, []byte("Errore nell'aggiunta del contatto al contatto"))
+				SendPacket(conn, ERROR, false, []byte("Errore nell'aggiunta del secondo contatto al contatto"))
 				return
 			}
 		}
@@ -349,7 +351,7 @@ func SetNickname(conn *Conn, msg string, id uint64, userKey []byte) {
 		SendPacket(conn, ERROR, false, []byte("Errore nella creazione del nuovo nickname nonce"))
 		return
 	}
-	newCipherNick, err := crypto.EncodeChaCha20Poly1305(userKey, newNicknameNonce, []byte(newNickname))
+	newCipherNick, err := crypto.EncryptXChaCha20Poly1305(userKey, newNicknameNonce, []byte(newNickname))
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nella cifratura"))
 		return

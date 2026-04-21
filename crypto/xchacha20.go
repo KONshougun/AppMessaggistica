@@ -8,7 +8,7 @@ import (
 
 // KEY 32
 // NONCE 24
-func EncodeChaCha20Poly1305(key []byte, nonce []byte, plaintext []byte) ([]byte, error) {
+func EncryptXChaCha20Poly1305(key []byte, nonce []byte, plaintext []byte) ([]byte, error) {
 	if len(key) != chacha20poly1305.KeySize ||
 		len(nonce) != chacha20poly1305.NonceSizeX {
 		return nil, fmt.Errorf("Parametri di chacha20poly1305 non validi")
@@ -24,7 +24,7 @@ func EncodeChaCha20Poly1305(key []byte, nonce []byte, plaintext []byte) ([]byte,
 
 // KEY 32
 // NONCE 24
-func DecodeXChaCha20Poly1305(key []byte, nonce []byte, ciphertext []byte) ([]byte, error) {
+func DecryptXChaCha20Poly1305(key []byte, nonce []byte, ciphertext []byte) ([]byte, error) {
 	if len(key) != chacha20poly1305.KeySize ||
 		len(nonce) != chacha20poly1305.NonceSizeX {
 		return nil, fmt.Errorf("Parametri di chacha20poly1305 non validi")
