@@ -11,7 +11,7 @@ import (
 	"github.com/KONshougun/AppMessaggistica/dbData"
 )
 
-func SendMessage(conn *Conn, msg string, id uint64, userKey []byte) {
+func SendMessage(conn *Conn, msg string, id int64, userKey []byte) {
 	fmt.Println("SendMessage")
 
 	db, err := dbData.StartConnection()
@@ -23,7 +23,7 @@ func SendMessage(conn *Conn, msg string, id uint64, userKey []byte) {
 
 	msgParams := strings.Split(string(msg), ";")
 
-	chatId, err := strconv.ParseUint(msgParams[0], 10, 64)
+	chatId, err := strconv.ParseInt(msgParams[0], 10, 64)
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nella lettura dell'id della chat"))
 		return
@@ -52,14 +52,14 @@ func SendMessage(conn *Conn, msg string, id uint64, userKey []byte) {
 		return
 	}
 
-	var lastID uint64
+	var lastId int64
 	query = fmt.Sprintf("SELECT COALESCE(MAX(%s), 0) FROM %s WHERE %s = ?", dbData.Id, dbData.Messages, dbData.IdChat)
-	err = db.QueryRow(query, chatId).Scan(&lastID)
+	err = db.QueryRow(query, chatId).Scan(&lastId)
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nell'ottenimento dell'id del messaggio"))
 		return
 	}
-	msgId := lastID + 1
+	msgId := lastId + 1
 
 	//	CIFRO IL MESSAGGIO
 	messageNonce, err := dbData.NewChatNonce(db, chatId)

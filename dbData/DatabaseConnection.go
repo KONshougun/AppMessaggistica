@@ -18,7 +18,6 @@ const (
 	PwdSalt      = "pwd_salt"
 	CipherMk     = "cipher_mk"
 	MkNonce      = "mk_nonce"
-	RecoveryMk   = "recovery_mk"
 	FailedLogins = "failed_logins"
 )
 
@@ -30,6 +29,7 @@ const (
 	UsernameNonce   = "username_nonce"
 	Nickname        = "nickname"
 	NicknameNonce   = "nickname_nonce"
+	PubKey          = "pub_key"
 	IsBlocked       = "is_blocked"
 )
 
@@ -83,6 +83,7 @@ const (
 	IdUser      = "id_user"
 	IdChat      = "id_chat"
 	IdChatNonce = "id_chat_nonce"
+	Flag        = "flag"
 )
 
 func StartConnection() (*sql.DB, error) {
@@ -114,7 +115,7 @@ type QueryRower interface {
 	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
-func NewUserNonce(qr QueryRower, idUser uint64) []byte {
+func NewUserNonce(qr QueryRower, idUser int64) []byte {
 	query := fmt.Sprintf(`
 		WITH valore AS (
 			SELECT ? AS id, ? AS newNonce
@@ -137,7 +138,7 @@ func NewUserNonce(qr QueryRower, idUser uint64) []byte {
 			FROM %s, valore
 			WHERE %s = valore.id AND %s = valore.newNonce
 		);
-	`, 	Contacts, IdUser, UsernameNonce, NicknameNonce,
+	`, Contacts, IdUser, UsernameNonce, NicknameNonce,
 		MembersChat, IdUser, ChatKeyNonce,
 		RemovedMessages, IdUser, IdMsgNonce, IdChatNonce,
 		UsersNoncesLogs, IdUser, Nonce)
@@ -157,7 +158,7 @@ func NewUserNonce(qr QueryRower, idUser uint64) []byte {
 		}
 	}
 }
-func NewChatNonce(qr QueryRower, idChat uint64) ([]byte, error) {
+func NewChatNonce(qr QueryRower, idChat int64) ([]byte, error) {
 
 	//	------------------- DA FARE ---------------------------
 	query := fmt.Sprintf(`

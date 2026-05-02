@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KONshougun/AppMessaggistica/crypto"
 	"github.com/KONshougun/AppMessaggistica/dbData"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -17,8 +18,9 @@ import (
 // cipherPwd [32]
 // MKNonce [12]
 // cipherMk [48]
-// recoveryMK[32]
-func getKeys(id uint64, password string) ([]byte, []byte, []byte, []byte, []byte, error) {
+// privKey = 32B
+// pubKey = 33B (compressa)
+func getKeys(password string) ([]byte, []byte, []byte, []byte, []byte, []byte, error) {
 
 	//DERIVO LA PASSWORD
 	pwdSalt := make([]byte, 16)
@@ -31,17 +33,18 @@ func getKeys(id uint64, password string) ([]byte, []byte, []byte, []byte, []byte
 	KEK := argon2.IDKey([]byte(password), pwdSalt, 1, 64*1024, 4, 32)
 	aead, err := chacha20poly1305.NewX(KEK)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 	mkNonce := make([]byte, aead.NonceSize())
 	rand.Read(mkNonce)
 	cipherMk := aead.Seal(nil, mkNonce, MK, nil)
-	recoveryMK := EncryptMK(id, mkNonce[:8], MK)
-	if recoveryMK == nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("Errore nella creazione della chiave di recupero")
+
+	privKey, pubKey, err := crypto.GenerateKeysECIES256()
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("Errore nella creazione delle chiavi asimmetriche")
 	}
 
-	return pwdSalt, pwdHash, mkNonce, cipherMk, recoveryMK, nil
+	return pwdSalt, pwdHash, mkNonce, cipherMk, privKey, pubKey, nil
 }
 
 func checkPassword(password []byte, pwdSalt, pwdHash []byte) bool {
@@ -49,7 +52,7 @@ func checkPassword(password []byte, pwdSalt, pwdHash []byte) bool {
 	return subtle.ConstantTimeCompare(pwdHash, passwordHash) == 1
 }
 
-func updateLog(id uint64, db *sql.DB) error {
+func updateLog(id int64, db *sql.DB) error {
 	//AGGIORNO LAST_LOG DELLO USER
 	query := fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ? AND %s IS NOT NULL;", dbData.Users, dbData.LastLog, dbData.Id, dbData.LastLog)
 	_, err := db.Exec(query, time.Now(), id)
@@ -57,10 +60,10 @@ func updateLog(id uint64, db *sql.DB) error {
 }
 
 // MK
-func AuthenticateUser(id uint64, password string) []byte {
+func AuthenticateUser(id int64, password string) ([]byte, error) {
 	db, err := dbData.StartConnection()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	var pwdHash, pwdSalt, cipherMk, mkNonce []byte
@@ -68,23 +71,23 @@ func AuthenticateUser(id uint64, password string) []byte {
 		dbData.PwdHash, dbData.PwdSalt, dbData.CipherMk, dbData.MkNonce, dbData.Users, dbData.Id)
 	err = db.QueryRow(query, id).Scan(&pwdHash, &pwdSalt, &cipherMk, &mkNonce)
 	if err != nil || !checkPassword([]byte(password), pwdSalt, pwdHash) {
-		return nil
+		return nil, err
 	}
 
 	KEK := argon2.IDKey([]byte(password), pwdSalt, 1, 64*1024, 4, 32)
 	aead, err := chacha20poly1305.NewX(KEK)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	MK, err := aead.Open(nil, mkNonce, cipherMk, nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	if updateLog(id, db) != nil {
-		return nil
+		return nil, err
 	}
-	return MK
+	return MK, nil
 }
 
 func signHandler(msg string) (*sql.DB, string, string, error) {
@@ -100,7 +103,7 @@ func signHandler(msg string) (*sql.DB, string, string, error) {
 	return db, username, password, nil
 }
 
-func SignIn(conn *Conn, msg string) (uint64, string) {
+func SignIn(conn *Conn, msg string) (int64, string) {
 	fmt.Println("SignIn")
 
 	db, username, password, err := signHandler(msg)
@@ -122,38 +125,65 @@ func SignIn(conn *Conn, msg string) (uint64, string) {
 		return 0, ""
 	}
 
-	var id uint64
-	if err = db.QueryRow("SELECT MAX(id) FROM users").Scan(&id); err != nil{
-		SendPacket(conn, ERROR, false, []byte("Errore nell'ottenimento dell'id"))
-		return 0, ""
-	}
-
 	// CREO L'UTENTE
-	pwdSalt, passwordHash, mkNonce, cipherMk, recoveryMK, err := getKeys(id, password)
+	tx, err := db.Begin()
 	if err != nil {
-		SendPacket(conn, ERROR, false, []byte("Errore nella creazione delle chiavi"))
-		fmt.Printf("err: %v\n", err)
+		SendPacket(conn, ERROR, false, []byte(err.Error()))
 		return 0, ""
 	}
 
 	query = fmt.Sprintf(`
-		INSERT INTO %s (%s, %s, %s, %s, %s, %s, %s) 
-		VALUES (?,?,?,?,?,?,?);`,
-		dbData.Users, dbData.Username, dbData.LastLog, dbData.PwdHash, dbData.PwdSalt, dbData.CipherMk, dbData.MkNonce, dbData.RecoveryMk)
-	_, err = db.Exec(query, username, time.Now(), passwordHash, pwdSalt, cipherMk, mkNonce, recoveryMK)
+		INSERT INTO %s (%s, %s) 
+		VALUES (?,?);`,
+		dbData.Users, dbData.Username, dbData.LastLog)
+	row, err := tx.Exec(query, username, time.Now())
+	if err != nil {
+		SendPacket(conn, ERROR, false, []byte("Errore nell'inserimento dell'utente nel database"))
+		fmt.Printf("err: %v\n", err)
+		return 0, ""
+	}
+	id, err := row.LastInsertId()
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nell'inserimento dell'utente nel database"))
 		fmt.Printf("err: %v\n", err)
 		return 0, ""
 	}
 
-	//FORSE DA TOGLIERE  (FORSE NON è DA TOGLIERE) (SICURAMENTE I DATI SONO DA CRIPTARE)
-	SendPacket(conn, SIGN_RESPONSE, false, []byte(fmt.Sprintf("%v", id)))
+	pwdSalt, passwordHash, mkNonce, cipherMk, privKey, pubKey, err := getKeys(password)
+	if err != nil {
+		SendPacket(conn, ERROR, false, []byte("Errore nella creazione delle chiavi"))
+		fmt.Printf("err: %v\n", err)
+		return 0, ""
+	}
+	query = fmt.Sprintf(`
+		UPDATE %s
+		SET %s = ?, %s = ?, %s = ?, %s = ?, %s = ?
+		WHERE %s = ?;`,
+		dbData.Users, dbData.PwdHash, dbData.PwdSalt, dbData.CipherMk, dbData.MkNonce, dbData.PubKey, dbData.Id)
+	_, err = tx.Exec(query, passwordHash, pwdSalt, cipherMk, mkNonce, pubKey, id)
+	if err != nil {
+		SendPacket(conn, ERROR, false, []byte("Errore nell'inserimento dell'utente nel database"))
+		fmt.Printf("err: %v\n", err)
+		return 0, ""
+	}
 
-	return id, password
+	if err = SendPacket(conn, SIGN_RESPONSE, true, fmt.Appendf(nil, "%v;%v", id, privKey)); err != nil {
+		fmt.Printf("err: %v\n", err)
+	}
+	response, _, err := ReadHeader(conn)
+	if err == nil && response == SUCCESS {
+		if err = tx.Commit(); err != nil {
+			return 0, ""
+		} else {
+			return id, password
+		}
+	} else {
+		return 0, ""
+	}
 }
 
-func SignUp(conn *Conn, msg string) (uint64, string) {
+// DA TOGLIERE
+func SignUp(conn *Conn, msg string) (int64, string) {
 	fmt.Println("SignUp")
 
 	db, username, password, err := signHandler(msg)
@@ -165,7 +195,7 @@ func SignUp(conn *Conn, msg string) (uint64, string) {
 	}
 	defer db.Close()
 
-	var id uint64
+	var id int64
 	var pwdSalt, pwdHash []byte
 	var failedLogins uint8
 	query := fmt.Sprintf(`
@@ -200,12 +230,16 @@ func SignUp(conn *Conn, msg string) (uint64, string) {
 		return 0, ""
 	}
 
-	//FORSE DA TOGLIERE
 	SendPacket(conn, SIGN_RESPONSE, false, []byte(fmt.Sprintf("%v", id)))
-	return id, password
-}
 
-func CheckPassword(conn *Conn, password string, id uint64) {
+	response, _, err := ReadHeader(conn)
+	if err == nil && response == SUCCESS {
+		return id, password
+	} else {
+		return 0, ""
+	}
+}
+func CheckPassword(conn *Conn, password string, id int64) {
 	fmt.Println("CheckPassword")
 
 	db, err := dbData.StartConnection()

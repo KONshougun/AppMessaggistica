@@ -15,44 +15,27 @@ var mu sync.Mutex
 
 // chatId
 // chatKey
-func newChat(tx *sql.Tx, name string) (uint64, [32]byte) {
+func newChat(tx *sql.Tx, name string) (int64, [32]byte, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	chatKey, err := newChatKey()
 	if err != nil {
-		return 0, [32]byte{}
+		return -1, [32]byte{}, err
 	}
 
 	//	------------------------	PRIMA DEVO CONTROLLARE SE LA CHAT GIA ESISTE
 
 	// CREO LA CHAT
 	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (?);", dbData.Chats, dbData.Name)
-	_, err = tx.Exec(query, "")
+	response, err := tx.Exec(query, name)
 	if err != nil {
-		return 0, [32]byte{}
+		return -1, [32]byte{}, err
 	}
-
-	var chatId uint64
-	err = tx.QueryRow(fmt.Sprintf("SELECT MAX(%v) FROM %s", dbData.Id, dbData.Chats)).Scan(&chatId)
+	chatId, err := response.LastInsertId()
 	if err != nil {
-		return 0, [32]byte{}
+		return -1, [32]byte{}, err
 	}
-
-	var cipherName []byte = nil
-	if name != "" {
-		var chatNonce [24]byte
-		cipherName, err = crypto.EncryptXChaCha20Poly1305(chatKey[:], chatNonce[:], []byte(name))
-		if err != nil {
-			return 0, [32]byte{}
-		}
-
-		query = fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ?;", dbData.Chats, dbData.Name, dbData.Id)
-		_, err := tx.Exec(query, cipherName, chatId)
-		if err != nil {
-			return 0, [32]byte{}
-		}
-	}
-	return chatId, chatKey
+	return chatId, chatKey, nil
 }
 
 func newChatKey() ([32]byte, error) {
@@ -65,31 +48,46 @@ func newChatKey() ([32]byte, error) {
 	return key, nil
 }
 
-func newMember(tx *sql.Tx, chatId uint64, chatKey [32]byte, idUser uint64, userKey []byte) bool {
-	if userKey == nil {
-		userKey = GetUserKey(tx, idUser)
-		if userKey == nil {
+func newMember(tx *sql.Tx, chatId int64, chatKey [32]byte, idUser int64, key []byte) bool {
+	fmt.Println("ciao")
+	if len(key) == 32 {
+
+		//	CHAT_KEY
+		chatKeyNonce := dbData.NewUserNonce(tx, idUser)
+		if chatKeyNonce == nil {
+			return false
+		}
+		cipherChatKey, err := crypto.EncryptXChaCha20Poly1305(key, chatKeyNonce, chatKey[:])
+		if err != nil {
+			return false
+		}
+
+		query := fmt.Sprintf(`
+			INSERT INTO %s (%s, %s, %s, %s) 
+			VALUES (?,?,?,?);`,
+			dbData.MembersChat, dbData.IdUser, dbData.IdChat, dbData.ChatKey, dbData.ChatKeyNonce)
+		_, err = tx.Exec(query, idUser, chatId, cipherChatKey, chatKeyNonce)
+		if err != nil {
+			return false
+		}
+
+	} else {
+		query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", dbData.PubKey, dbData.Users, dbData.Id)
+		err := tx.QueryRow(query, idUser).Scan(&key)
+
+		cipherChatKey, err := crypto.EncodeECIES256(key[:], chatKey[:])
+		if err != nil {
+			return false
+		}
+
+		query = fmt.Sprintf(`
+			INSERT INTO %s (%s, %s, %s, %s) 
+			VALUES (?,?,?,?);`, dbData.MembersChat, dbData.IdUser, dbData.IdChat, dbData.ChatKey, dbData.Flag)
+		_, err = tx.Exec(query, idUser, chatId, cipherChatKey, 1)
+		if err != nil {
 			return false
 		}
 	}
-
-	//	CHAT_KEY
-	chatKeyNonce := dbData.NewUserNonce(tx, idUser)
-	if chatKeyNonce == nil {
-		return false
-	}
-	cipherChatKey, err := crypto.EncryptXChaCha20Poly1305(userKey, chatKeyNonce, chatKey[:])
-	if err != nil {
-		return false
-	}
-
-	query := fmt.Sprintf(`
-			INSERT INTO %s (%s, %s, %s, %s, %s, %s) 
-			VALUES (?,?,?,?,?,?);
-		`,
-		dbData.MembersChat, dbData.IdUser, dbData.IdChat, dbData.ChatKey, dbData.ChatKeyNonce)
-	if _, err = tx.Exec(query, idUser, chatId, cipherChatKey, chatKeyNonce); err != nil {
-		return false
-	}
+	fmt.Println("successo")
 	return true
 }

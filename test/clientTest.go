@@ -1,153 +1,213 @@
 package main
 
 import (
+	"bytes"
+	"crypto/ecdh"
+	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
-	"time"
 
+	"github.com/KONshougun/AppMessaggistica/crypto"
 	appcrypto "github.com/KONshougun/AppMessaggistica/crypto"
 	"github.com/KONshougun/AppMessaggistica/handlers"
-	"github.com/cloudflare/circl/kem/kyber/kyber1024"
 	"golang.org/x/crypto/hkdf"
 )
 
 func main() {
 	conn, _ := net.Dial("tcp", "127.0.0.1:18854")
 	defer conn.Close()
+	iv[0]++
 
 	key, err := handshake(conn)
-	nonce := make([]byte, 24)
 	if err != nil {
 		fmt.Printf("err: %v\n", err)
 		return
 	}
 
-	//auth(conn, key, nonce, handlers.SIGN_IN, "Paolo", "pwd123456")
-	auth(conn, key, nonce, handlers.SIGN_UP, "Giuseppe", "pwd123456")
-	addContact(conn, key, nonce, handlers.ADD_CONTACT, "Paolo", "Paolino")
-	for {
-		time.Sleep(5 * time.Second)
-	}
-	//SendMsg(conn, handlers.END_SESSION, nil, nil)
+	//auth(conn, key, handlers.SIGN_IN, "Giuseppe", "pwd123456")
+	auth(conn, key, handlers.SIGN_UP, "Giuseppe", "pwd123456")
+
+	addContact(conn, key, handlers.ADD_CONTACT, "Paolo", "Paolino")
+
+	fmt.Println("-------------------- FINITO -------------------------")
+	SendPacket(conn, handlers.END_SESSION, nil, nil)
 }
 
-const KYBER_PUB_KEY = "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"
+const X25519_PUBLIC_KEY = "8sUS0/lbCW+ksvhgk3gWmBFQNA8Fp+jKzXHFkIPBl2I="
+
+var privKey = []byte{91, 49, 52, 49, 32, 49, 49, 49, 32, 49, 55, 48, 32, 49, 53, 54, 32, 49, 48, 57, 32, 49, 56, 56, 32, 50, 48, 53, 32, 49, 55, 56, 32, 55, 57, 32, 55, 48, 32, 55, 51, 32, 52, 49, 32, 49, 48, 48, 32, 49, 48, 51, 32, 49, 56, 51, 32, 49, 55, 53, 32, 50, 53, 48, 32, 49, 48, 51, 32, 51, 54, 32, 49, 51, 57, 32, 57, 55, 32, 49, 57, 53, 32, 49, 48, 49, 32, 49, 49, 32, 49, 52, 51, 32, 57, 49, 32, 49, 52, 57, 32, 49, 57, 48, 32, 49, 56, 32, 49, 51, 51, 32, 55, 52, 32, 49, 56, 52, 93}
+var id int64 = 38
+var iv []byte = make([]byte, 24)
 
 func handshake(conn net.Conn) ([]byte, error) {
-	scheme := kyber1024.Scheme()
 
-	//Prendo la chiave pubblica
-	pubBytes, err := base64.StdEncoding.DecodeString(KYBER_PUB_KEY)
-	if err != nil {
-		return nil, err
-	}
-	pk, err := scheme.UnmarshalBinaryPublicKey(pubBytes)
+	curve := ecdh.X25519()
+
+	// generate ephemeral keypair
+	clientPriv, err := curve.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
 
-	// invio al server il ct e il segreto
-	ct, sharedSecret, err := scheme.Encapsulate(pk)
+	clientPub := clientPriv.PublicKey()
+
+	// send client public key
+	SendPacket(conn, handlers.SESSION_INIT, nil, clientPub.Bytes())
+
+	// receive server public key
+	action, serverPubBytes, err := ReadHeader(conn, nil)
+	if action != handlers.SESSION_REPLY || err != nil {
+		return nil, err
+	}
+
+	serverPub, err := curve.NewPublicKey([]byte(serverPubBytes))
 	if err != nil {
 		return nil, err
 	}
-	SendMsg(conn, handlers.KYBER_INIT, nil, ct)
 
-	//CONTROLLO CHE IL SERVER NON HA AVUTO PROBLEMI
-	action, _, _, err := ReadFrame(conn)
-	if action != handlers.KYBER_REPLY && err != nil {
+	// shared secret (Diffie-Hellman)
+	sharedSecret, err := clientPriv.ECDH(serverPub)
+	if err != nil {
 		return nil, err
 	}
+
+	// derive session key
 	key := make([]byte, 32)
-	io.ReadFull(hkdf.New(sha256.New, sharedSecret, nil, []byte("kyber-session")), key)
+	io.ReadFull(hkdf.New(sha256.New, sharedSecret, nil, []byte("session")), key)
+
 	return key, nil
 }
 
-func auth(conn net.Conn, key, nonce []byte, t byte, u, p string) {
+func auth(conn net.Conn, key []byte, t byte, u, p string) {
 
 	plain := []byte(u + ";" + p)
-	nonce[0]++
-	cipher, _ := appcrypto.EncryptXChaCha20Poly1305(key, nonce, plain)
+	cipher, _ := appcrypto.EncryptXChaCha20Poly1305(key, iv, plain)
+	SendPacket(conn, t, iv, cipher)
 
-	SendMsg(conn, t, nonce, cipher)
+	rt, _ /*payload*/, err := ReadHeader(conn, key)
+	if err == nil && rt == handlers.SIGN_RESPONSE {
+		/*params := strings.Split(payload, ";")
+		if len(params) != 2 {
+			fmt.Println("invalid auth response payload")
+			SendPacket(conn, handlers.ERROR, nil, nil)
+			return
+		}
+		parsedID, err := strconv.ParseUint(params[0], 10, 64)
+		if err != nil {
+			fmt.Printf("invalid id in auth response: %v\n", err)
+			SendPacket(conn, handlers.ERROR, nil, nil)
+			return
+		}
+		id = int64(parsedID)
+		privKey = []byte(params[1])
+		*/
+	} else {
+		SendPacket(conn, handlers.ERROR, nil, nil)
+		return
+	}
 
-	rt, payload, _, _ := ReadFrame(conn)
-	fmt.Println("response:", rt, string(payload))
+	SendPacket(conn, handlers.SUCCESS, nil, nil)
 }
 
-func addContact(conn net.Conn, key, nonce []byte, t byte, username, nickname string) {
+func addContact(conn net.Conn, key []byte, t byte, username, nickname string) {
 
 	plain := []byte(username + ";" + nickname)
-	nonce[0]++
-	cipher, _ := appcrypto.EncryptXChaCha20Poly1305(key, nonce, plain)
 
-	SendMsg(conn, t, nonce, cipher)
+	cipher, _ := appcrypto.EncryptXChaCha20Poly1305(key, iv, plain)
 
-	rt, payload, _, _ := ReadFrame(conn)
+	SendPacket(conn, t, iv, cipher)
+
+	rt, payload, _ := ReadHeader(conn, key)
 	fmt.Println("response:", rt, string(payload))
 }
 
 /*
 action
-length
-nonce
+text
 error
 */
-func ReadFrame(conn net.Conn) (byte, []byte, []byte, error) {
-	header := make([]byte, 4)
+func ReadHeader(conn net.Conn, key []byte) (byte, string, error) {
+	header := make([]byte, 6)
 	if _, err := io.ReadFull(conn, header); err != nil {
-		return 0, nil, nil, err
+		return 0, "", err
+	}
+	if !bytes.Equal(header[0:3], []byte("kon")) {
+		return 0, "", fmt.Errorf("Errore messaggio ricevuto non valido")
 	}
 
-	action := header[0]
-	length := binary.BigEndian.Uint16(header[1:3])
-	hasNonce := header[3] == 1
+	action := header[3]
+	length := binary.BigEndian.Uint16(header[4:6]) & 0x7FFF
+	hasNonce := header[4]&0x80 != 0
 
-	payload := make([]byte, length)
-	if length > 0 {
-		if _, err := io.ReadFull(conn, payload); err != nil {
-			return 0, nil, nil, err
-		}
+	if length == 0 {
+		return action, "", nil
+	} else if length > 60000 {
+		return 0, "", fmt.Errorf("lunghezza del messaggio troppo grande: %d", length)
 	}
 
-	var nonce []byte
+	buffer := make([]byte, length)
 	if hasNonce {
-		nonce = make([]byte, 24)
-		if _, err := io.ReadFull(conn, nonce); err != nil {
-			return 0, nil, nil, err
-		}
+		buffer = make([]byte, length+24)
 	}
 
-	return action, payload, nonce, nil
+	if _, err := io.ReadFull(conn, buffer); err != nil {
+		return 0, "", err
+	}
+
+	text := buffer[:length]
+	var nonce []byte = nil
+	if hasNonce {
+		nonce = buffer[length:]
+		if len(nonce) != 24 {
+			//forse andrebbe fatto un resetKey
+			//resetKey(conn)
+			return 0, "", fmt.Errorf("nonce non valido")
+		}
+		msg, err := crypto.DecryptXChaCha20Poly1305(key, nonce, text)
+		if err != nil {
+			SendPacket(conn, handlers.ERROR, nil, []byte("Errore nel decifrare il messaggio"))
+			return 0, "", fmt.Errorf("Errore nel decifrare il messaggio")
+		}
+
+		iv[0] = nonce[0] + 1
+		return action, string(msg), nil
+	}
+
+	return action, string(text), nil
 }
 
-func SendMsg(conn net.Conn, action byte, nonce []byte, msg []byte) {
-
+func SendPacket(conn net.Conn, action byte, nonce []byte, msg []byte) bool {
+	salt := "kon"
 	msgLen := uint16(len(msg))
-	if msgLen > 60000 {
+
+	if msgLen > 10000 {
 		fmt.Println("Messaggio troppo lungo")
-		return
+		return false
 	}
+
 	var buffer []byte
 	if len(nonce) == 24 {
-		buffer = make([]byte, 4+24+msgLen) // 4 header + msg + 24 nonce
-		buffer[3] = 1
-		copy(buffer[4+len(msg):], nonce[:])
+
+		buffer = make([]byte, 6+24+msgLen) // 6 header + msg + 24 nonce
+
+		binary.BigEndian.PutUint16(buffer[4:6], msgLen)
+		buffer[4] |= 0x80
+		copy(buffer[6+msgLen:], nonce)
+		iv[0]++
+
 	} else {
-		buffer = make([]byte, 4+msgLen) // 4 header + msg
-		buffer[3] = 0
+		buffer = make([]byte, 6+msgLen) // 6 header + msg
+		binary.BigEndian.PutUint16(buffer[4:6], msgLen)
 	}
-	buffer[0] = action
-	binary.BigEndian.PutUint16(buffer[1:3], msgLen)
-	if msgLen > 0 {
-		copy(buffer[4:4+msgLen], msg)
-	}
+	copy(buffer[0:3], []byte(salt))
+	buffer[3] = action
+	copy(buffer[6:6+msgLen], msg)
 
 	if _, err := conn.Write(buffer); err != nil {
 		fmt.Printf("Errore durante l'invio del messaggio: %v\n", err)
 	}
+	return true
 }

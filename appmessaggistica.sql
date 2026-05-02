@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Creato il: Apr 07, 2026 alle 16:19
+-- Creato il: Apr 30, 2026 alle 20:09
 -- Versione del server: 10.4.32-MariaDB
 -- Versione PHP: 8.2.12
 
@@ -53,12 +53,12 @@ CREATE TABLE `chats_nonces_logs` (
 CREATE TABLE `contacts` (
   `id_user` bigint(20) NOT NULL,
   `username_hash` binary(32) NOT NULL,
-  `username_contact` varchar(197) NOT NULL,
-  `username_nonce` binary(24) NOT NULL,
-  `nickname` varchar(100) NOT NULL,
-  `nickname_nonce` binary(24) NOT NULL,
+  `username_contact` varbinary(150) NOT NULL,
+  `username_nonce` binary(24) DEFAULT NULL,
+  `nickname` varbinary(150) DEFAULT NULL,
+  `nickname_nonce` binary(24) DEFAULT NULL,
   `is_blocked` tinyint(1) NOT NULL DEFAULT 0,
-  `key_flag` tinyint(1) NOT NULL DEFAULT 0
+  `flag` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -82,10 +82,10 @@ CREATE TABLE `members_chat` (
   `id_user` bigint(20) NOT NULL,
   `id_chat` bigint(20) NOT NULL,
   `id_msg_bgn` bigint(20) DEFAULT NULL,
-  `chat_key` varchar(130) NOT NULL,
-  `chat_key_nonce` binary(24) NOT NULL,
+  `chat_key` varbinary(175) NOT NULL,
+  `chat_key_nonce` binary(24) DEFAULT NULL,
   `last_msg_read_id` bigint(20) NOT NULL DEFAULT 0,
-  `key_flag` tinyint(1) NOT NULL DEFAULT 0
+  `flag` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -125,13 +125,12 @@ CREATE TABLE `removed_messages` (
 
 CREATE TABLE `users` (
   `id` bigint(20) NOT NULL,
-  `username` varchar(100) NOT NULL,
+  `username` varchar(25) NOT NULL,
   `last_log` datetime DEFAULT NULL,
   `pwd_hash` binary(32) NOT NULL,
   `pwd_salt` binary(16) NOT NULL,
   `cipher_mk` binary(48) NOT NULL,
-  `mk_nonce` binary(8) NOT NULL,
-  `recovery_mk` binary(32) NOT NULL,
+  `mk_nonce` binary(24) NOT NULL,
   `pub_key` binary(33) NOT NULL,
   `failed_logins` tinyint(3) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -235,7 +234,7 @@ ALTER TABLE `messages`
 -- AUTO_INCREMENT per la tabella `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
 
 --
 -- Limiti per le tabelle scaricate

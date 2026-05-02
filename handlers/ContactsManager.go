@@ -16,7 +16,7 @@ type Contact struct {
 	isBlocked bool
 }
 
-func getContacts(id uint64, userKey []byte, db *sql.DB) []Contact {
+func getContacts(id int64, userKey []byte, db *sql.DB) []Contact {
 
 	query := fmt.Sprintf(`
 		SELECT %s, %s, %s, %s, %s 
@@ -59,60 +59,61 @@ func getContacts(id uint64, userKey []byte, db *sql.DB) []Contact {
 	return contacts
 }
 
-func addContact(tx *sql.Tx, idUser uint64, usernameContact, nicknameContact string, userKey []byte) error {
+func addContact(tx *sql.Tx, idUser, idContact int64, usernameContact, nicknameContact string, key []byte) error {
 
-	if userKey == nil {
-		userKey = GetUserKey(tx, idUser)
-		if userKey == nil {
-			return fmt.Errorf("Errore nell'ottenimento della chiave dell'utente")
+	if len(key) == 32 {
+		usernameNonce := dbData.NewUserNonce(tx, idUser)
+		if usernameNonce == nil {
+			return fmt.Errorf("Errore nell'ottenimento di un nonce per lo username")
 		}
-	}
-
-	usernameNonce := dbData.NewUserNonce(tx, idUser)
-	if usernameNonce == nil {
-		return fmt.Errorf("Errore nell'ottenimento dello user nonce")
-	}
-	usernameCipher, err := crypto.EncryptXChaCha20Poly1305(userKey, usernameNonce, []byte(usernameContact))
-	if err != nil {
-		return err
-	}
-	usernameHash, err := crypto.EncodeHmacSha256(usernameContact)
-	if err != nil {
-		return err
-	}
-
-	query := fmt.Sprintf(`
-		INSERT INTO %s (%s, %s, %s, %s) 
-		VALUES (?,?,?,?);`,
-		dbData.Contacts, dbData.IdUser, dbData.UsernameHash, dbData.UsernameContact, dbData.UsernameNonce)
-	if _, err = tx.Exec(query, idUser, usernameHash, usernameCipher, usernameNonce); err != nil {
-		tx.Rollback()
-		return err
-	}
-	if nicknameContact != "" {
-		nicknameNonce := dbData.NewUserNonce(tx, idUser)
-		if nicknameNonce != nil {
-			return fmt.Errorf("Errore nell'ottenimento del nickname nonce")
-		}
-		nicknameCipher, err := crypto.EncryptXChaCha20Poly1305(userKey, nicknameNonce, []byte(nicknameContact))
+		usernameCipher, err := crypto.EncryptXChaCha20Poly1305(key, usernameNonce, []byte(usernameContact))
 		if err != nil {
 			return err
 		}
-		query = fmt.Sprintf(`
-			UPDATE %s
-			SET %s = ?, %s = ?;
-			WHERE %s = ?, %s = ?`,
-			dbData.Contacts, dbData.Nickname, dbData.NicknameNonce, dbData.IdUser, dbData.UsernameHash)
-		if _, err = tx.Exec(query, nicknameCipher, nicknameNonce, idUser, usernameHash); err != nil {
+		usernameHash, err := crypto.EncodeHmacSha256(usernameContact)
+		if err != nil {
+			return err
+		}
+
+		nicknameNonce := dbData.NewUserNonce(tx, idUser)
+		if nicknameNonce == nil {
+			return fmt.Errorf("Errore nell'ottenimento di un nonce per il nickname")
+		}
+		nicknameCipher, err := crypto.EncryptXChaCha20Poly1305(key, nicknameNonce, []byte(nicknameContact))
+		if err != nil {
+			return err
+		}
+
+		query := fmt.Sprintf(`
+		INSERT INTO %s (%s, %s, %s, %s, %s, %s) 
+		VALUES (?,?,?,?,?,?);`,
+			dbData.Contacts, dbData.IdUser, dbData.UsernameHash, dbData.UsernameContact, dbData.UsernameNonce, dbData.Nickname, dbData.NicknameNonce)
+		if _, err = tx.Exec(query, idUser, usernameHash, usernameCipher, usernameNonce, nicknameCipher, nicknameNonce); err != nil {
 			tx.Rollback()
 			return err
 		}
-	}
+	} else if len(key) == 33 {
+		cipherUsername, err := crypto.EncodeECIES256(key, []byte(usernameContact))
+		if err != nil {
+			return err
+		}
+		usernameHash, err := crypto.EncodeHmacSha256(usernameContact)
+		if err != nil {
+			return err
+		}
 
+		query := fmt.Sprintf("INSERT INTO %s (%s, %s, %s, %s) VALUES (?,?,?,?);", dbData.Contacts, dbData.IdUser, dbData.UsernameHash, dbData.UsernameContact, dbData.Flag)
+		if _, err = tx.Exec(query, idContact, usernameHash, cipherUsername, 1); err != nil {
+			tx.Rollback()
+			return err
+		}
+	} else {
+		return fmt.Errorf("Chiave non valida")
+	}
 	return nil
 }
 
-func AddContact(conn *Conn, msg string, id uint64, userKey []byte) {
+func AddContact(conn *Conn, msg string, id int64, userKey []byte) {
 	fmt.Println("AddContact")
 
 	db, err := dbData.StartConnection()
@@ -128,7 +129,7 @@ func AddContact(conn *Conn, msg string, id uint64, userKey []byte) {
 	var nickname string = msgParams[1]
 
 	//CONTROLLO SE STA AGGIUNGENDO SE STESSO
-	var contactId uint64
+	var contactId int64
 	query := fmt.Sprintf(`SELECT %s FROM %s WHERE %s = ?;`,
 		dbData.Id, dbData.Users, dbData.Username)
 
@@ -158,48 +159,16 @@ func AddContact(conn *Conn, msg string, id uint64, userKey []byte) {
 			return
 		}
 	}
-	if err = addContact(tx, id, contactUsername, nickname, userKey); err != nil {
+	if err = addContact(tx, id, contactId, contactUsername, nickname, userKey); err != nil {
 		fmt.Printf("err: %v\n", err)
 		SendPacket(conn, ERROR, false, []byte("Errore nell'aggiunta del primo contatto"))
 		return
 	}
 
-	//CREO IL SECONDO MEMBER CHAT
-	//controllo se già esiste
-	var username string
-	query = fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", dbData.Username, dbData.Users, dbData.Id)
-	if err = db.QueryRow(query, id).Scan(&username); err != nil {
-		tx.Rollback()
-		SendPacket(conn, ERROR, false, []byte(err.Error()))
-		return
-	}
-	usernameHash, err := crypto.EncodeHmacSha256(username)
-	if err != nil {
-		tx.Rollback()
-		SendPacket(conn, ERROR, false, []byte(err.Error()))
-		return
-	}
-	var found bool
-	query = fmt.Sprintf("SELECT 1 FROM %s WHERE %s=? AND %s=? LIMIT 1", dbData.Contacts, dbData.IdUser, dbData.UsernameHash)
-	err = tx.QueryRow(query, contactId, usernameHash).Scan(&found)
-	if err != nil {
-		if err != sql.ErrNoRows {
-			tx.Rollback()
-			SendPacket(conn, ERROR, false, []byte(err.Error()))
-			return
-		} else {
-			if err = addContact(tx, contactId, username, "", nil); err != nil {
-				fmt.Printf("err: %v\n", err)
-				tx.Rollback()
-				SendPacket(conn, ERROR, false, []byte("Errore nell'aggiunta del secondo contatto al contatto"))
-				return
-			}
-		}
-	}
-
 	// CONTROLLO SE HANNO GIà UNA CHAT TRA DI LORO
+	var count int
 	query = fmt.Sprintf(`
-		SELECT 1
+		SELECT COUNT(*)
 		FROM %s
 		INNER JOIN %s ON %s = %s
 		WHERE %s IS NOT NULL
@@ -215,41 +184,59 @@ func AddContact(conn *Conn, msg string, id uint64, userKey []byte) {
 		dbData.IdChat,
 		dbData.IdUser)
 
-	_, err = tx.Query(query, id, contactId)
-	if err != nil && err != sql.ErrNoRows {
+	err = tx.QueryRow(query, id, contactId).Scan(&count)
+	if err == nil || err == sql.ErrNoRows {
+		switch count {
+		case 1:
+			if err = tx.Commit(); err != nil {
+				SendPacket(conn, ERROR, false, []byte(err.Error()))
+			} else {
+				SendPacket(conn, SUCCESS, false, []byte{1})
+			}
+			return
+		case 0:
+			chatId, chatKey, err := newChat(tx, "")
+			if err != nil {
+				tx.Rollback()
+				SendPacket(conn, ERROR, false, []byte(err.Error()))
+				return
+			}
+
+			//prendo la chiave pubblica del contatto
+			var pubKey []byte
+			query = fmt.Sprintf("SELECT %s FROM %s WHERE %s=?", dbData.PubKey, dbData.Users, dbData.Id)
+			err = tx.QueryRow(query, contactId).Scan(&pubKey)
+			if err != nil {
+				tx.Rollback()
+				SendPacket(conn, ERROR, false, []byte(err.Error()))
+				return
+			}
+			if !newMember(tx, chatId, chatKey, id, userKey) ||
+				!newMember(tx, chatId, chatKey, contactId, pubKey) {
+				tx.Rollback()
+				SendPacket(conn, ERROR, false, []byte("Errore nella creazione dei due membri delle chat"))
+				return
+			}
+
+			if err = tx.Commit(); err != nil {
+				SendPacket(conn, ERROR, false, []byte(err.Error()))
+			} else {
+				SendPacket(conn, SUCCESS, false, []byte{1})
+			}
+		default:
+			fmt.Println("Non so come sia possibile")
+			tx.Rollback()
+			SendPacket(conn, ERROR, false, []byte("Anomalia nella ricerca della chat"))
+			return
+		}
+	} else {
 		tx.Rollback()
 		SendPacket(conn, ERROR, false, []byte("Errore nella ricerca di chat in comune"))
 		return
-	} else if err == nil {
-		if err = tx.Commit(); err != nil {
-			SendPacket(conn, ERROR, false, []byte(err.Error()))
-		} else {
-			SendPacket(conn, SUCCESS, false, []byte{1})
-		}
-		return
-	} else {
-		chatId, chatKey := newChat(tx, "")
-		if chatId == 0 {
-			tx.Rollback()
-			SendPacket(conn, ERROR, false, []byte(err.Error()))
-			return
-		}
-		if !newMember(tx, chatId, chatKey, id, userKey) ||
-			!newMember(tx, chatId, chatKey, contactId, nil) {
-			tx.Rollback()
-			SendPacket(conn, ERROR, false, []byte(err.Error()))
-			return
-		}
-
-		if err = tx.Commit(); err != nil {
-			SendPacket(conn, ERROR, false, []byte(err.Error()))
-		} else {
-			SendPacket(conn, SUCCESS, false, []byte{1})
-		}
 	}
 }
 
-func GetContacts(conn *Conn, msg string, id uint64, userKey []byte) {
+func GetContacts(conn *Conn, msg string, id int64, userKey []byte) {
 	fmt.Println("GetContacts")
 
 	db, err := dbData.StartConnection()
@@ -269,7 +256,7 @@ func GetContacts(conn *Conn, msg string, id uint64, userKey []byte) {
 	}*/
 }
 
-func SetBlockState(conn *Conn, msg string, id uint64, userKey []byte) {
+func SetBlockState(conn *Conn, msg string, id int64, userKey []byte) {
 	fmt.Println("SetBlockState")
 
 	db, err := dbData.StartConnection()
@@ -315,7 +302,7 @@ func SetBlockState(conn *Conn, msg string, id uint64, userKey []byte) {
 	}
 }
 
-func SetNickname(conn *Conn, msg string, id uint64, userKey []byte) {
+func SetNickname(conn *Conn, msg string, id int64, userKey []byte) {
 	fmt.Println("SetNickname")
 
 	db, err := dbData.StartConnection()
@@ -385,7 +372,7 @@ func SetNickname(conn *Conn, msg string, id uint64, userKey []byte) {
 	}
 }
 
-func RemoveContact(conn *Conn, msg string, id uint64, userKey []byte) {
+func RemoveContact(conn *Conn, msg string, id int64, userKey []byte) {
 	fmt.Println("RemoveContact")
 
 	db, err := dbData.StartConnection()

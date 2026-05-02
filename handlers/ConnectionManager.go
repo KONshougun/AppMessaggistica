@@ -2,16 +2,14 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/ecdh"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
-	"os"
 
 	"github.com/KONshougun/AppMessaggistica/crypto"
-	"github.com/cloudflare/circl/kem/kyber/kyber1024"
 	"golang.org/x/crypto/hkdf"
 )
 
@@ -32,8 +30,8 @@ import (
 
 const (
 	//Handshsake
-	KYBER_INIT byte = iota
-	KYBER_REPLY
+	SESSION_INIT byte = iota
+	SESSION_REPLY
 
 	//User
 	SIGN_IN
@@ -75,50 +73,47 @@ type Conn struct {
 }
 
 func HandleHandshake(conn *Conn) ([]byte, error) {
-	action, ct, err := ReadHeader(conn)
-	if err != nil || action != KYBER_INIT || len(ct) != kyber1024.CiphertextSize {
-		SendPacket(conn, ERROR, false, []byte("Errore nella richiesta di handshake"))
-		fmt.Printf("err: %v\n", err)
+
+	action, clientPubBytes, err := ReadHeader(conn)
+	if err != nil || action != SESSION_INIT {
+		SendPacket(conn, ERROR, false, []byte("Handshake error"))
 		return nil, err
 	}
 
-	//Riprendo la private key
-	pkBase64 := os.Getenv("KYBER_PRIV_KEY")
-	if pkBase64 == "" {
-		fmt.Printf("pkBase64: %v\n", pkBase64)
-		SendPacket(conn, ERROR, false, []byte("KYBER_PRIV_KEY non impostata"))
-		return nil, err
+	privBytes := getEnvPrivKey()
+	if privBytes == nil {
+		SendPacket(conn, ERROR, false, []byte("Missing server key"))
+		return nil, fmt.Errorf("missing key")
 	}
-	pkBytes, err := base64.StdEncoding.DecodeString(pkBase64)
+
+	curve := ecdh.X25519()
+
+	serverPriv, err := curve.NewPrivateKey(privBytes)
 	if err != nil {
-		fmt.Printf("err: %v\n", err)
-		SendPacket(conn, ERROR, false, []byte("Base64 non valida"))
+		SendPacket(conn, ERROR, false, []byte("Invalid private key"))
 		return nil, err
 	}
 
-	//Recupero la chiave
-	scheme := kyber1024.Scheme()
-	sk, err := scheme.UnmarshalBinaryPrivateKey(pkBytes)
+	clientPub, err := curve.NewPublicKey([]byte(clientPubBytes))
 	if err != nil {
-		fmt.Printf("err: %v\n", err)
-		SendPacket(conn, ERROR, false, []byte("Private key non valida"))
+		SendPacket(conn, ERROR, false, []byte("Invalid client public key"))
 		return nil, err
 	}
 
-	// Decapsulate
-	sharedSecret, err := scheme.Decapsulate(sk, []byte(ct))
+	// shared secret (Diffie-Hellman)
+	sharedSecret, err := serverPriv.ECDH(clientPub)
 	if err != nil {
-		fmt.Printf("err: %v\n", err)
-		SendPacket(conn, ERROR, false, []byte("Errore nel decapsulate"))
+		SendPacket(conn, ERROR, false, []byte("ECDH failed"))
 		return nil, err
 	}
 
-	// Deriva chiave simmetrica
+	// derive session key
 	key := make([]byte, 32)
-	io.ReadFull(hkdf.New(sha256.New, sharedSecret, nil, []byte("kyber-session")), key)
+	io.ReadFull(hkdf.New(sha256.New, sharedSecret, nil, []byte("session")), key)
 
-	// Conferma handshake al client
-	SendPacket(conn, KYBER_REPLY, false, nil)
+	// send server public key
+	SendPacket(conn, SESSION_REPLY, false, serverPriv.PublicKey().Bytes())
+
 	return key, nil
 }
 
@@ -128,7 +123,7 @@ text
 error
 */
 func ReadHeader(conn *Conn) (byte, string, error) {
-	header := make([]byte, 7)
+	header := make([]byte, 6)
 	if _, err := io.ReadFull(conn.Conn, header); err != nil {
 		return 0, "", err
 	}
@@ -137,8 +132,10 @@ func ReadHeader(conn *Conn) (byte, string, error) {
 	}
 
 	action := header[3]
-	length := binary.BigEndian.Uint16(header[4:6])
-	hasNonce := header[6] == 1
+
+	raw := binary.BigEndian.Uint16(header[4:6])
+	hasNonce := (raw & 0x8000) != 0
+	length := raw & 0x7FFF
 
 	if length == 0 {
 		return action, "", nil
@@ -175,41 +172,44 @@ func ReadHeader(conn *Conn) (byte, string, error) {
 
 	return action, string(text), nil
 }
-
-func SendPacket(conn *Conn, action byte, hasNonce bool, msg []byte) bool {
+func SendPacket(conn *Conn, action byte, hasNonce bool, msg []byte) error {
 	salt := "kon"
 	msgLen := uint16(len(msg))
 
 	if msgLen > 10000 {
-		fmt.Println("Messaggio troppo lungo")
-		return false
+		return fmt.Errorf("Messaggio troppo lungo")
 	}
 
 	var buffer []byte
 	if hasNonce {
 		if conn.Iv[0] == 255 {
-			fmt.Println("Chiave di sessione scaduta")
 			resetKey(conn)
-			return false
+		return fmt.Errorf("Chiave di sessione scaduta")
 		}
 		conn.Iv[0]++
 
-		buffer = make([]byte, 8+24+msgLen) // 8 header + msg + 24 nonce
-		buffer[6] = 1
-		copy(buffer[4+msgLen:], conn.Iv[:])
+		buffer = make([]byte, 6+24+16+msgLen) // 6 header + msg + 24 nonce + 16 MAC
+
+		msg, err := crypto.EncryptXChaCha20Poly1305(conn.Key, conn.Iv[:], msg)
+		if err != nil {
+		return err
+		}
+		binary.BigEndian.PutUint16(buffer[4:6], msgLen+16)
+		buffer[4] |= 0x80
+		copy(buffer[6:6+msgLen], msg)
+		copy(buffer[6+msgLen:], conn.Iv[:])
 	} else {
-		buffer = make([]byte, 8+msgLen) // 8 header + msg
-		buffer[6] = 0
+		buffer = make([]byte, 6+msgLen) // 6 header + msg
+		binary.BigEndian.PutUint16(buffer[4:6], msgLen)
+		copy(buffer[6:6+msgLen], msg)
 	}
 	copy(buffer[0:3], []byte(salt))
 	buffer[3] = action
-	binary.BigEndian.PutUint16(buffer[4:6], msgLen)
-	copy(buffer[7:8+msgLen], msg)
 
 	if _, err := conn.Conn.Write(buffer); err != nil {
 		fmt.Printf("Errore durante l'invio del messaggio: %v\n", err)
 	}
-	return true
+	return nil
 }
 
 func resetKey(conn *Conn) {

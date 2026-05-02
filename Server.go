@@ -45,7 +45,7 @@ func main() {
 	}
 }
 
-func handleRequest(conn net.Conn, id uint64) {
+func handleRequest(conn net.Conn, id int64) {
 	defer conn.Close()
 
 	connection := handlers.Conn{
@@ -57,6 +57,7 @@ func handleRequest(conn net.Conn, id uint64) {
 	//	HANDSHAKE
 	key, err := handlers.HandleHandshake(&connection)
 	if err != nil {
+		fmt.Printf("err: %v\n", err)
 		fmt.Println("Errore durante l'handshake")
 		return
 	}
@@ -69,6 +70,7 @@ func handleRequest(conn net.Conn, id uint64) {
 		action, msg, err := handlers.ReadHeader(&connection)
 		if err != nil {
 			fmt.Println("errore nella lettura dell'header")
+			fmt.Printf("err: %v\n", err)
 			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Errore nella lettura della richiesta"))
 			return
 		}
@@ -80,21 +82,21 @@ func handleRequest(conn net.Conn, id uint64) {
 			}
 		case handlers.SIGN_UP:
 			id, password = handlers.SignUp(&connection, msg)
-			fmt.Printf("id: %v\n", id)
-			fmt.Printf("password: %v\n", password)
 			if password == "" {
 				fmt.Println("Errore nell'ottenimento della password")
 			}
 		case handlers.END_SESSION:
-			return;
+			fmt.Println("Session ended")
+			return
 		default:
 			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Richiesta non valida"))
+			fmt.Println("ciao")
 		}
 
 		if password != "" {
-			userKey = handlers.AuthenticateUser(id, password)
-			if userKey == nil{
-				fmt.Println("Errore nell'ottenimento della chiave")
+			userKey, err = handlers.AuthenticateUser(id, password)
+			if err != nil {
+				fmt.Printf("err: %v\n", err)
 			}
 		}
 	}
@@ -108,7 +110,6 @@ func handleRequest(conn net.Conn, id uint64) {
 			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Errore nella lettura della richiesta"))
 			return
 		}
-		fmt.Printf("action: %v\n", action)
 		switch action {
 		case handlers.CHECK_PASSWORD:
 			handlers.CheckPassword(&connection, msg, id)
@@ -125,9 +126,11 @@ func handleRequest(conn net.Conn, id uint64) {
 		case handlers.SET_NICKNAME:
 			handlers.SetNickname(&connection, msg, id, userKey)
 		case handlers.END_SESSION:
+			fmt.Println("Session ended")
 			return
 		default:
 			handlers.SendPacket(&connection, handlers.ERROR, false, []byte("Richiesta non valida"))
+			fmt.Printf("action: %v\n", action)
 		}
 	}
 

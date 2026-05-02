@@ -3,16 +3,18 @@ package crypto
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"log"
+	"encoding/hex"
 	"os"
 )
 
 func EncodeHmacSha256(arg string) ([]byte, error) {
-	key := []byte(os.Getenv("SERVER_KEY"))
-	if len(key) == 0 {
-		return nil, log.Output(1, "SERVER_KEY non impostata")
-	}
 
+	keyHex := os.Getenv("SERVER_SHA_KEY")
+	key, err := hex.DecodeString(keyHex)
+	if err != nil {
+		return nil, err
+	}
+	
 	h := hmac.New(sha256.New, key)
 	h.Write([]byte(arg))
 	hash := h.Sum(nil)
