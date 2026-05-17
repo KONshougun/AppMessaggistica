@@ -11,70 +11,64 @@ import (
 )
 
 type Contact struct {
-	username  string
-	nickname  string
-	isBlocked bool
+	Username  string `json:"username"`
+	Nickname  string `json:"nickname"`
+	LastLog   string `json:"lastLog"`
+	IsBlocked bool   `json:"isBlocked"`
 }
 
-func getContacts(id int64, userKey []byte, db *sql.DB) []Contact {
+func getContacts(id int64, userKey []byte, db *sql.DB) ([]Contact, error) {
 
 	query := fmt.Sprintf(`
 		SELECT %s, %s, %s, %s, %s 
-		FROM %s 
-		WHERE %s = ?;`,
-		dbData.UsernameContact, dbData.UsernameNonce, dbData.Nickname, dbData.NicknameNonce, dbData.IsBlocked, dbData.Contacts, dbData.IdUser)
+		FROM %s c
+		INNER JOIN %s ON %s = %s
+		WHERE c.%s = ?;`,
+		dbData.ContactUsername, dbData.Nickname, dbData.NicknameNonce, dbData.IsBlocked, dbData.LastLog,
+		dbData.Contacts, dbData.Users, dbData.Username, dbData.ContactUsername, dbData.Id)
 	rows, err := db.Query(query, id)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 
 	var contacts []Contact
 	for rows.Next() {
-		var cipherUsername []byte
-		var usernameNonce []byte
+		var contactUsername string
 		var cipherNickname []byte
 		var nicknameNonce []byte
 		var is_blocked bool
+		var lastLogStr string
 
-		err = rows.Scan(&cipherUsername, &usernameNonce, &cipherNickname, &nicknameNonce, &is_blocked)
+		var lastLog sql.NullString
+
+		err = rows.Scan(&contactUsername, &cipherNickname, &nicknameNonce, &is_blocked, &lastLog)
 		if err != nil {
-			return nil
-		}
-		decipherUsernameBytes, err := crypto.DecryptXChaCha20Poly1305(userKey, usernameNonce, cipherUsername)
-		if err != nil {
-			return nil
+			return nil, err
 		}
 		decipherNicknameBytes, err := crypto.DecryptXChaCha20Poly1305(userKey, nicknameNonce, cipherNickname)
 		if err != nil {
-			return nil
+			return nil, err
+		}
+		if lastLog.Valid {
+			lastLogStr = lastLog.String
+		} else {
+			lastLogStr = ""
 		}
 
 		contacts = append(contacts, Contact{
-			username:  string(decipherUsernameBytes),
-			nickname:  string(decipherNicknameBytes),
-			isBlocked: is_blocked,
+			Username:  contactUsername,
+			Nickname:  string(decipherNicknameBytes),
+			IsBlocked: is_blocked,
+			LastLog:   lastLogStr,
 		})
 	}
-	return contacts
+	return contacts, nil
 }
 
-func addContact(tx *sql.Tx, idUser, idContact int64, usernameContact, nicknameContact string, key []byte) error {
+func addContact(tx *sql.Tx, idUser int64, usernameContact, nicknameContact string, key []byte) error {
 
 	if len(key) == 32 {
-		usernameNonce := dbData.NewUserNonce(tx, idUser)
-		if usernameNonce == nil {
-			return fmt.Errorf("Errore nell'ottenimento di un nonce per lo username")
-		}
-		usernameCipher, err := crypto.EncryptXChaCha20Poly1305(key, usernameNonce, []byte(usernameContact))
-		if err != nil {
-			return err
-		}
-		usernameHash, err := crypto.EncodeHmacSha256(usernameContact)
-		if err != nil {
-			return err
-		}
-
 		nicknameNonce := dbData.NewUserNonce(tx, idUser)
 		if nicknameNonce == nil {
 			return fmt.Errorf("Errore nell'ottenimento di un nonce per il nickname")
@@ -85,25 +79,10 @@ func addContact(tx *sql.Tx, idUser, idContact int64, usernameContact, nicknameCo
 		}
 
 		query := fmt.Sprintf(`
-		INSERT INTO %s (%s, %s, %s, %s, %s, %s) 
-		VALUES (?,?,?,?,?,?);`,
-			dbData.Contacts, dbData.IdUser, dbData.UsernameHash, dbData.UsernameContact, dbData.UsernameNonce, dbData.Nickname, dbData.NicknameNonce)
-		if _, err = tx.Exec(query, idUser, usernameHash, usernameCipher, usernameNonce, nicknameCipher, nicknameNonce); err != nil {
-			tx.Rollback()
-			return err
-		}
-	} else if len(key) == 33 {
-		cipherUsername, err := crypto.EncodeECIES256(key, []byte(usernameContact))
-		if err != nil {
-			return err
-		}
-		usernameHash, err := crypto.EncodeHmacSha256(usernameContact)
-		if err != nil {
-			return err
-		}
-
-		query := fmt.Sprintf("INSERT INTO %s (%s, %s, %s, %s) VALUES (?,?,?,?);", dbData.Contacts, dbData.IdUser, dbData.UsernameHash, dbData.UsernameContact, dbData.Flag)
-		if _, err = tx.Exec(query, idContact, usernameHash, cipherUsername, 1); err != nil {
+		INSERT INTO %s (%s, %s, %s, %s) 
+		VALUES (?, ?, ?, ?);`,
+			dbData.Contacts, dbData.Id, dbData.ContactUsername, dbData.Nickname, dbData.NicknameNonce)
+		if _, err = tx.Exec(query, idUser, usernameContact, nicknameCipher, nicknameNonce); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -151,15 +130,19 @@ func AddContact(conn *Conn, msg string, id int64, userKey []byte) {
 
 	//CREO IL PRIMO MEMBER CHAT
 	//	CONTROLLO SE IL CONTATTO ESISTE GIà
-	contacts := getContacts(id, userKey, db)
+	contacts, err := getContacts(id, userKey, db)
+	if err != nil {
+		SendPacket(conn, ERROR, false, []byte(err.Error()))
+		return
+	}
 	for _, contact := range contacts {
-		if contact.username == contactUsername ||
-			contact.nickname == nickname {
+		if contact.Username == contactUsername ||
+			contact.Nickname == nickname {
 			SendPacket(conn, ERROR, false, []byte("Errore contatto o nickname già esistente"))
 			return
 		}
 	}
-	if err = addContact(tx, id, contactId, contactUsername, nickname, userKey); err != nil {
+	if err = addContact(tx, id, contactUsername, nickname, userKey); err != nil {
 		fmt.Printf("err: %v\n", err)
 		SendPacket(conn, ERROR, false, []byte("Errore nell'aggiunta del primo contatto"))
 		return
@@ -236,7 +219,7 @@ func AddContact(conn *Conn, msg string, id int64, userKey []byte) {
 	}
 }
 
-func GetContacts(conn *Conn, msg string, id int64, userKey []byte) {
+func GetContacts(conn *Conn, id int64, userKey []byte) {
 	fmt.Println("GetContacts")
 
 	db, err := dbData.StartConnection()
@@ -246,14 +229,38 @@ func GetContacts(conn *Conn, msg string, id int64, userKey []byte) {
 	}
 	defer db.Close()
 
-	/*contacts := getContacts(id, userKey, db)
-	//----------------- DA FARE --------------------
-	for i, contact := range contacts {
-		strContacts += fmt.Sprintf(
-			`{"%s": "`+contact.username+`", "%s": "`+contact.nickname+`",
-			"%s": `+strconv.FormatBool(contact.isBlocked)+"}",
-			Username, Nickname, BlockState)
-	}*/
+	if err = SendPacket(conn, LOAD_START, false, nil); err != nil {
+		SendPacket(conn, ERROR, false, []byte(err.Error()))
+		return
+	}
+
+	contacts, err := getContacts(id, userKey, db)
+	if err != nil {
+		fmt.Printf("err: %v\n", err)
+		SendPacket(conn, ERROR, false, []byte(err.Error()))
+		return
+	}
+
+	var buffer strings.Builder
+	for _, contact := range contacts {
+		fmt.Fprintf(&buffer, "%s,%s,%s,%t", contact.Username, contact.Nickname, contact.LastLog, contact.IsBlocked)
+		//fmt.Printf("contact: %v\n", contact)
+		if buffer.Len() > 5000 {
+			SendPacket(conn, PROGRESS, true, []byte(buffer.String()))
+			buffer.Reset()
+		} else {
+			buffer.Write([]byte(";"))
+		}
+	}
+	if buffer.Len() > 0 {
+		SendPacket(conn, PROGRESS, true, []byte(buffer.String()))
+	}
+
+	if err = SendPacket(conn, LOAD_END, false, nil); err != nil {
+		fmt.Printf("err: %v\n", err)
+		SendPacket(conn, ERROR, false, []byte(err.Error()))
+		return
+	}
 }
 
 func SetBlockState(conn *Conn, msg string, id int64, userKey []byte) {
@@ -275,17 +282,10 @@ func SetBlockState(conn *Conn, msg string, id int64, userKey []byte) {
 		return
 	}
 
-	//riprendo l'username hashato
-	usernameHash, err := crypto.EncodeHmacSha256(contactUsername)
-	if err != nil {
-		SendPacket(conn, ERROR, false, []byte(err.Error()))
-		return
-	}
-
 	//CONTROLLO CHE IL CONTATTO ESISTE
 	var found bool
-	query := fmt.Sprintf("SELECT 1 FROM %s WHERE %s = ? AND %s = ?;", dbData.Contacts, dbData.IdUser, dbData.UsernameHash)
-	err = db.QueryRow(query, id, usernameHash).Scan(&found)
+	query := fmt.Sprintf("SELECT 1 FROM %s WHERE %s = ? AND %s = ?;", dbData.Contacts, dbData.IdUser, dbData.ContactUsername)
+	err = db.QueryRow(query, id, contactUsername).Scan(&found)
 	if err == sql.ErrNoRows {
 		SendPacket(conn, ERROR, false, []byte(err.Error()))
 		return
@@ -294,8 +294,8 @@ func SetBlockState(conn *Conn, msg string, id int64, userKey []byte) {
 		return
 	}
 
-	query = fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ? AND %s = ?;", dbData.Contacts, dbData.IsBlocked, dbData.IdUser, dbData.UsernameHash)
-	if _, err = db.Exec(query, blockState, id, usernameHash); err != nil {
+	query = fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ? AND %s = ?;", dbData.Contacts, dbData.IsBlocked, dbData.IdUser, dbData.ContactUsername)
+	if _, err = db.Exec(query, blockState, id, contactUsername); err != nil {
 		SendPacket(conn, ERROR, false, []byte(err.Error()))
 	} else {
 		SendPacket(conn, SUCCESS, false, []byte{1})
@@ -316,15 +316,9 @@ func SetNickname(conn *Conn, msg string, id int64, userKey []byte) {
 	contactUsername := msgParams[0]
 	newNickname := msgParams[1]
 
-	usernameHash, err := crypto.EncodeHmacSha256(contactUsername)
-	if err != nil {
-		SendPacket(conn, ERROR, false, []byte(err.Error()))
-		return
-	}
-
 	var nicknameNonce []byte
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ? AND %s = ?", dbData.NicknameNonce, dbData.Contacts, dbData.IdUser, dbData.UsernameHash)
-	err = db.QueryRow(query, id, usernameHash).Scan(&nicknameNonce)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ? AND %s = ?", dbData.NicknameNonce, dbData.Contacts, dbData.IdUser, dbData.ContactUsername)
+	err = db.QueryRow(query, id, contactUsername).Scan(&nicknameNonce)
 	if err == sql.ErrNoRows {
 		SendPacket(conn, ERROR, false, []byte("Contatto non trovato"))
 		return
@@ -333,7 +327,13 @@ func SetNickname(conn *Conn, msg string, id int64, userKey []byte) {
 		return
 	}
 
-	newNicknameNonce := dbData.NewUserNonce(db, id)
+	tx, err := db.Begin()
+	if err != nil {
+		SendPacket(conn, ERROR, false, []byte(err.Error()))
+		return
+	}
+
+	newNicknameNonce := dbData.NewUserNonce(tx, id)
 	if newNicknameNonce == nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nella creazione del nuovo nickname nonce"))
 		return
@@ -341,12 +341,6 @@ func SetNickname(conn *Conn, msg string, id int64, userKey []byte) {
 	newCipherNick, err := crypto.EncryptXChaCha20Poly1305(userKey, newNicknameNonce, []byte(newNickname))
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nella cifratura"))
-		return
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		SendPacket(conn, ERROR, false, []byte(err.Error()))
 		return
 	}
 
@@ -360,8 +354,8 @@ func SetNickname(conn *Conn, msg string, id int64, userKey []byte) {
 	}
 
 	//AGGIORNO IL CONTACT
-	query = fmt.Sprintf("UPDATE %s SET %s = ?, %s = ? WHERE %s = ? AND %s = ?;", dbData.Contacts, dbData.Nickname, dbData.NicknameNonce, dbData.IdUser, dbData.UsernameHash)
-	_, err = tx.Exec(query, newCipherNick, newNicknameNonce, id, usernameHash)
+	query = fmt.Sprintf("UPDATE %s SET %s = ?, %s = ? WHERE %s = ? AND %s = ?;", dbData.Contacts, dbData.Nickname, dbData.NicknameNonce, dbData.IdUser, dbData.ContactUsername)
+	_, err = tx.Exec(query, newCipherNick, newNicknameNonce, id, contactUsername)
 	if err != nil {
 		tx.Rollback()
 		SendPacket(conn, ERROR, false, []byte(err.Error()))
@@ -385,16 +379,10 @@ func RemoveContact(conn *Conn, msg string, id int64, userKey []byte) {
 	msgParams := strings.Split(string(msg), ";")
 	contactUsername := msgParams[0]
 
-	usernameHash, err := crypto.EncodeHmacSha256(contactUsername)
-	if err != nil {
-		SendPacket(conn, ERROR, false, []byte(err.Error()))
-		return
-	}
-
-	var nonces [2][]byte
-	query := fmt.Sprintf("SELECT %s, %s FROM %s WHERE %s = ? AND %s = ?",
-		dbData.UsernameNonce, dbData.NicknameNonce, dbData.Contacts, dbData.IdUser, dbData.UsernameHash)
-	err = db.QueryRow(query, id, usernameHash).Scan(&nonces[0], &nonces[1])
+	var nonce []byte
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ? AND %s = ?",
+		dbData.NicknameNonce, dbData.Contacts, dbData.IdUser, dbData.ContactUsername)
+	err = db.QueryRow(query, id, contactUsername).Scan(&nonce)
 	if err == sql.ErrNoRows {
 		SendPacket(conn, ERROR, false, []byte("Contatto non trovato"))
 		return
@@ -412,16 +400,14 @@ func RemoveContact(conn *Conn, msg string, id int64, userKey []byte) {
 	//	------------------- CAMBIARE ---------------------
 	//INSERISCO I NONCE NEI LOG
 	query = fmt.Sprintf("INSERT INTO %s(%s) VALUES (?)", dbData.UsersNoncesLogs, dbData.Nonce)
-	for _, nonce := range nonces {
-		_, err = tx.Exec(query, nonce)
-		if err != nil {
-			tx.Rollback()
-			return
-		}
+	_, err = tx.Exec(query, nonce)
+	if err != nil {
+		tx.Rollback()
+		return
 	}
 
-	query = fmt.Sprintf("DELETE FROM %s WHERE %s = ? AND %s = ?;", dbData.Contacts, dbData.IdUser, dbData.UsernameHash)
-	_, err = tx.Exec(query, id, usernameHash)
+	query = fmt.Sprintf("DELETE FROM %s WHERE %s = ? AND %s = ?;", dbData.Contacts, dbData.IdUser, dbData.ContactUsername)
+	_, err = tx.Exec(query, id, contactUsername)
 	if err != nil {
 		tx.Rollback()
 		SendPacket(conn, ERROR, false, []byte(err.Error()))

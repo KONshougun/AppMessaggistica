@@ -18,18 +18,16 @@ const (
 	PwdSalt      = "pwd_salt"
 	CipherMk     = "cipher_mk"
 	MkNonce      = "mk_nonce"
+	PubKey       = "pub_key"
 	FailedLogins = "failed_logins"
 )
 
 // CONTACTS
 const (
 	Contacts        = "contacts"
-	UsernameHash    = "username_hash"
-	UsernameContact = "username_contact"
-	UsernameNonce   = "username_nonce"
+	ContactUsername = "contact_username"
 	Nickname        = "nickname"
 	NicknameNonce   = "nickname_nonce"
-	PubKey          = "pub_key"
 	IsBlocked       = "is_blocked"
 )
 
@@ -51,17 +49,17 @@ const (
 
 // MESSAGES
 const (
-	Messages = "messages"
-	IdSender = "id_sender"
-	Message  = "message"
-	SendTime = "send_time"
+	Messages     = "messages"
+	IdSender     = "id_sender"
+	Message      = "message"
+	MessageNonce = "message_nonce"
+	SendTime     = "send_time"
 )
 
 // REMOVED MESSAGES
 const (
 	RemovedMessages = "removed_messages"
 	IdMsg           = "id_msg"
-	IdMsgNonce      = "id_msg_nonce"
 )
 
 // NONCE LOGS
@@ -108,6 +106,7 @@ func StartConnection() (*sql.DB, error) {
 		fmt.Println(err)
 		return nil, err
 	}
+
 	return db, nil
 }
 
@@ -115,33 +114,30 @@ type QueryRower interface {
 	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
-func NewUserNonce(qr QueryRower, idUser int64) []byte {
+func NewUserNonce(tx *sql.Tx, idUser int64) []byte {
 	query := fmt.Sprintf(`
+	
 		WITH valore AS (
-			SELECT ? AS id, ? AS newNonce
+			SELECT ? AS idUser, ? AS newNonce
 		)
 		SELECT 1
 		WHERE EXISTS (
 			SELECT 1
 			FROM %s, valore
-			WHERE %s = valore.id AND (%s = valore.newNonce OR %s = valore.newNonce)
+			WHERE %s = valore.idUser AND %s = valore.newNonce
 			UNION
 			SELECT 1
 			FROM %s, valore
-			WHERE %s = valore.id AND %s = valore.newNonce
+			WHERE %s = valore.idUser AND %s = valore.newNonce
 			UNION
 			SELECT 1
 			FROM %s, valore
-			WHERE %s = valore.id AND (%s = valore.newNonce OR %s = valore.newNonce)
-			UNION
-			SELECT 1
-			FROM %s, valore
-			WHERE %s = valore.id AND %s = valore.newNonce
+			WHERE %s = valore.idUser AND %s = valore.newNonce
 		);
-	`, Contacts, IdUser, UsernameNonce, NicknameNonce,
-		MembersChat, IdUser, ChatKeyNonce,
-		RemovedMessages, IdUser, IdMsgNonce, IdChatNonce,
-		UsersNoncesLogs, IdUser, Nonce)
+		`, Contacts, Id, NicknameNonce,
+		UsersNoncesLogs, IdUser, Nonce,
+		MembersChat, IdUser, ChatKeyNonce)
+
 	for {
 		nonce := make([]byte, 24)
 		if _, err := rand.Read(nonce); err != nil {
@@ -150,8 +146,11 @@ func NewUserNonce(qr QueryRower, idUser int64) []byte {
 		}
 
 		var found bool
-		if err := qr.QueryRow(query, idUser, nonce).Scan(&found); err == sql.ErrNoRows {
-			return nonce
+
+		if err := tx.QueryRow(query, idUser, nonce/*, idUser, nonce, idUser, nonce*/).Scan(&found); err == nil || err == sql.ErrNoRows {
+			if !found {
+				return nonce
+			}
 		} else {
 			fmt.Printf("err: %v\n", err)
 			return nil
@@ -160,7 +159,6 @@ func NewUserNonce(qr QueryRower, idUser int64) []byte {
 }
 func NewChatNonce(qr QueryRower, idChat int64) ([]byte, error) {
 
-	//	------------------- DA FARE ---------------------------
 	query := fmt.Sprintf(`
 		WITH valore AS (
 			SELECT ? AS id, ? AS newNonce
@@ -169,23 +167,14 @@ func NewChatNonce(qr QueryRower, idChat int64) ([]byte, error) {
 		WHERE EXISTS (
 			SELECT 1
 			FROM %s, valore
-			WHERE %s = valore.id AND (%s = valore.newNonce OR %s = valore.newNonce)
+			WHERE %s = valore.id AND %s = valore.newNonce
 			UNION
 			SELECT 1
 			FROM %s, valore
-			WHERE %s = valore.id AND (%s = valore.newNonce OR %s = valore.newNonce)
-			UNION
-			SELECT 1
-			FROM %s, valore
-			WHERE %s = valore.id AND (%s = valore.newNonce OR %s = valore.newNonce)
-			UNION
-			SELECT 1
-			FROM %s, valore
-			WHERE %s = valore.id %s = valore.newNonce
+			WHERE %s = valore.id AND %s = valore.newNonce
 		);
-	`, Contacts, IdUser, UsernameNonce, NicknameNonce, MembersChat, IdUser, IdChatNonce, ChatKeyNonce,
-		RemovedMessages, IdUser, IdMsgNonce, IdChatNonce,
-		UsersNoncesLogs, IdUser, Nonce)
+	`, Messages, IdChat, MessageNonce,
+		ChatsNoncesLogs, IdChat, Nonce)
 	for {
 		nonce := make([]byte, 24)
 		_, err := rand.Read(nonce)

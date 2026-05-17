@@ -116,9 +116,11 @@ func handleRequest(conn net.Conn, id int64) {
 		case handlers.ADD_CONTACT:
 			handlers.AddContact(&connection, msg, id, userKey)
 		case handlers.GET_CONTACTS:
-			handlers.GetContacts(&connection, msg, id, userKey)
+			handlers.GetContacts(&connection, id, userKey)
 		case handlers.SEND_MESSAGE:
 			handlers.SendMessage(&connection, msg, id, userKey)
+		case handlers.GET_CHATS:
+			handlers.GetChats(&connection, id, userKey)
 		case handlers.SET_BLOCK:
 			handlers.SetBlockState(&connection, msg, id, userKey)
 		case handlers.REMOVE_CONTACT:

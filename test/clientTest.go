@@ -5,6 +5,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -30,7 +31,9 @@ func main() {
 	//auth(conn, key, handlers.SIGN_IN, "Giuseppe", "pwd123456")
 	auth(conn, key, handlers.SIGN_UP, "Giuseppe", "pwd123456")
 
-	addContact(conn, key, handlers.ADD_CONTACT, "Paolo", "Paolino")
+	getContacts(conn, key)
+	//sendMessage(conn, key, handlers.SEND_MESSAGE, 4, "Ciao Paolo!!")
+	getChats(conn, key)
 
 	fmt.Println("-------------------- FINITO -------------------------")
 	SendPacket(conn, handlers.END_SESSION, nil, nil)
@@ -57,13 +60,11 @@ func handshake(conn net.Conn) ([]byte, error) {
 	// send client public key
 	SendPacket(conn, handlers.SESSION_INIT, nil, clientPub.Bytes())
 
-	// receive server public key
-	action, serverPubBytes, err := ReadHeader(conn, nil)
-	if action != handlers.SESSION_REPLY || err != nil {
+	serverKey, err := base64.StdEncoding.DecodeString(X25519_PUBLIC_KEY)
+	if err != nil {
 		return nil, err
 	}
-
-	serverPub, err := curve.NewPublicKey([]byte(serverPubBytes))
+	serverPub, err := curve.NewPublicKey(serverKey)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +89,7 @@ func auth(conn net.Conn, key []byte, t byte, u, p string) {
 	SendPacket(conn, t, iv, cipher)
 
 	rt, _ /*payload*/, err := ReadHeader(conn, key)
-	if err == nil && rt == handlers.SIGN_RESPONSE {
+	if err == nil && rt == handlers.SUCCESS {
 		/*params := strings.Split(payload, ";")
 		if len(params) != 2 {
 			fmt.Println("invalid auth response payload")
@@ -105,11 +106,8 @@ func auth(conn net.Conn, key []byte, t byte, u, p string) {
 		privKey = []byte(params[1])
 		*/
 	} else {
-		SendPacket(conn, handlers.ERROR, nil, nil)
 		return
 	}
-
-	SendPacket(conn, handlers.SUCCESS, nil, nil)
 }
 
 func addContact(conn net.Conn, key []byte, t byte, username, nickname string) {
@@ -122,6 +120,83 @@ func addContact(conn net.Conn, key []byte, t byte, username, nickname string) {
 
 	rt, payload, _ := ReadHeader(conn, key)
 	fmt.Println("response:", rt, string(payload))
+}
+
+func getContacts(conn net.Conn, key []byte) {
+
+	SendPacket(conn, handlers.GET_CONTACTS, nil, nil)
+
+	response, payload, err := ReadHeader(conn, key)
+	if err != nil || response != handlers.LOAD_START {
+		fmt.Printf("err: %v\n", err)
+		fmt.Printf("response: %v\n", response)
+		return
+	}
+
+	for true {
+		response, payload, err = ReadHeader(conn, key)
+		if err != nil {
+			fmt.Printf("err: %v\n", err)
+			return
+		} else if response == handlers.PROGRESS {
+			fmt.Printf("payload: %v\n", payload)
+		} else if response == handlers.LOAD_END {
+			fmt.Println("contatti finiti")
+			break
+		} else {
+			fmt.Println("Anomalia get contact")
+			fmt.Printf("response: %v\n", response)
+			fmt.Printf("payload: %v\n", payload)
+		}
+	}
+}
+
+func sendMessage(conn net.Conn, key []byte, t byte, chatId int64, msg string) {
+
+	plain := []byte(fmt.Sprint(chatId) + ";" + msg)
+
+	cipher, err := appcrypto.EncryptXChaCha20Poly1305(key, iv, plain)
+	if err != nil {
+		fmt.Printf("err: %v\n", err)
+	}
+
+	SendPacket(conn, t, iv, cipher)
+
+	rt, payload, _ := ReadHeader(conn, key)
+	fmt.Println("response:", rt, string(payload))
+}
+func getChats(conn net.Conn, key []byte) {
+
+	SendPacket(conn, handlers.GET_CHATS, nil, nil)
+
+	response, payload, err := ReadHeader(conn, key)
+	if err != nil || response != handlers.LOAD_START {
+		fmt.Printf("err: %v\n", err)
+		fmt.Printf("response: %v\n", response)
+		return
+	}
+
+	for true {
+		response, payload, err = ReadHeader(conn, key)
+		if err != nil {
+			fmt.Printf("err: %v\n", err)
+			return
+		} else if response == handlers.PROGRESS {
+			fmt.Printf("payload: %v\n", payload)
+		} else if response == handlers.LOAD_END {
+			fmt.Println("contatti finiti")
+			break
+		} else if response == handlers.ERROR {
+			fmt.Printf("response: %v\n", response)
+			fmt.Printf("payload: %v\n", payload)
+			return
+		} else {
+			fmt.Println("Anomalia get chats")
+			fmt.Printf("response: %v\n", response)
+			fmt.Printf("payload: %v\n", payload)
+			return
+		}
+	}
 }
 
 /*
@@ -168,6 +243,7 @@ func ReadHeader(conn net.Conn, key []byte) (byte, string, error) {
 		}
 		msg, err := crypto.DecryptXChaCha20Poly1305(key, nonce, text)
 		if err != nil {
+			fmt.Printf("err: %v\n", err)
 			SendPacket(conn, handlers.ERROR, nil, []byte("Errore nel decifrare il messaggio"))
 			return 0, "", fmt.Errorf("Errore nel decifrare il messaggio")
 		}
@@ -196,15 +272,16 @@ func SendPacket(conn net.Conn, action byte, nonce []byte, msg []byte) bool {
 		binary.BigEndian.PutUint16(buffer[4:6], msgLen)
 		buffer[4] |= 0x80
 		copy(buffer[6+msgLen:], nonce)
+		copy(buffer[6:6+msgLen], msg)
 		iv[0]++
 
 	} else {
 		buffer = make([]byte, 6+msgLen) // 6 header + msg
 		binary.BigEndian.PutUint16(buffer[4:6], msgLen)
+		copy(buffer[6:6+msgLen], msg)
 	}
 	copy(buffer[0:3], []byte(salt))
 	buffer[3] = action
-	copy(buffer[6:6+msgLen], msg)
 
 	if _, err := conn.Write(buffer); err != nil {
 		fmt.Printf("Errore durante l'invio del messaggio: %v\n", err)

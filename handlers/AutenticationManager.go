@@ -167,18 +167,13 @@ func SignIn(conn *Conn, msg string) (int64, string) {
 		return 0, ""
 	}
 
-	if err = SendPacket(conn, SIGN_RESPONSE, true, fmt.Appendf(nil, "%v;%v", id, privKey)); err != nil {
+	if err = SendPacket(conn, SUCCESS, true, fmt.Appendf(nil, "%v;%v", id, privKey)); err != nil {
 		fmt.Printf("err: %v\n", err)
 	}
-	response, _, err := ReadHeader(conn)
-	if err == nil && response == SUCCESS {
-		if err = tx.Commit(); err != nil {
-			return 0, ""
-		} else {
-			return id, password
-		}
-	} else {
+	if err = tx.Commit(); err != nil {
 		return 0, ""
+	} else {
+		return id, password
 	}
 }
 
@@ -230,14 +225,8 @@ func SignUp(conn *Conn, msg string) (int64, string) {
 		return 0, ""
 	}
 
-	SendPacket(conn, SIGN_RESPONSE, false, []byte(fmt.Sprintf("%v", id)))
-
-	response, _, err := ReadHeader(conn)
-	if err == nil && response == SUCCESS {
-		return id, password
-	} else {
-		return 0, ""
-	}
+	SendPacket(conn, SUCCESS, false, fmt.Appendf(nil, "%v", id))
+	return id, password
 }
 func CheckPassword(conn *Conn, password string, id int64) {
 	fmt.Println("CheckPassword")

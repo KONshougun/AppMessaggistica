@@ -1,11 +1,9 @@
 package handlers
 
 import (
-	"encoding/binary"
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/KONshougun/AppMessaggistica/crypto"
 	"github.com/KONshougun/AppMessaggistica/dbData"
@@ -33,7 +31,6 @@ func SendMessage(conn *Conn, msg string, id int64, userKey []byte) {
 		SendPacket(conn, ERROR, false, []byte("Errore messaggio troppo lungo"))
 		return
 	}
-	sendTime := time.Now()
 
 	//	CERCA LA CHAT_KEY
 	var cipherChatKey []byte
@@ -52,14 +49,13 @@ func SendMessage(conn *Conn, msg string, id int64, userKey []byte) {
 		return
 	}
 
-	var lastId int64
-	query = fmt.Sprintf("SELECT COALESCE(MAX(%s), 0) FROM %s WHERE %s = ?", dbData.Id, dbData.Messages, dbData.IdChat)
-	err = db.QueryRow(query, chatId).Scan(&lastId)
+	var msgId int64
+	query = fmt.Sprintf("SELECT COALESCE(MAX(%s)+1, 0) FROM %s WHERE %s = ?", dbData.Id, dbData.Messages, dbData.IdChat)
+	err = db.QueryRow(query, chatId).Scan(&msgId)
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte("Errore nell'ottenimento dell'id del messaggio"))
 		return
 	}
-	msgId := lastId + 1
 
 	//	CIFRO IL MESSAGGIO
 	messageNonce, err := dbData.NewChatNonce(db, chatId)
@@ -72,16 +68,14 @@ func SendMessage(conn *Conn, msg string, id int64, userKey []byte) {
 		SendPacket(conn, ERROR, false, []byte("Errore nella crittografia del messaggio"))
 		return
 	}
-	timeBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(timeBytes, uint64(sendTime.Unix()))
 
 	//	INSERISCO IL MESSAGGIO NEL DB
 	query = fmt.Sprintf(`
-		INSERT INTO %s(%s, %s, %s, %s, %s) 
-		VALUES(?,?,?,?,?)`,
-		dbData.Messages, dbData.Id, dbData.IdChat, dbData.IdSender, dbData.Message, dbData.SendTime)
+		INSERT INTO %s(%s, %s, %s, %s) 
+		VALUES(?,?,?,?)`,
+		dbData.Messages, dbData.Id, dbData.IdChat, dbData.IdSender, dbData.Message)
 
-	_, err = db.Exec(query, msgId, chatId, id, cipherMsg, timeBytes)
+	_, err = db.Exec(query, msgId, chatId, id, cipherMsg)
 	if err != nil {
 		SendPacket(conn, ERROR, false, []byte(err.Error()))
 	} else {

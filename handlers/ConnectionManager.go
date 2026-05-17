@@ -30,13 +30,19 @@ import (
 
 const (
 	//Handshsake
-	SESSION_INIT byte = iota
-	SESSION_REPLY
+	SUCCESS byte = iota
+	ERROR
+	END_SESSION
+	SESSION_INIT
+
+	//Load Data
+	LOAD_START
+	PROGRESS
+	LOAD_END
 
 	//User
 	SIGN_IN
 	SIGN_UP
-	SIGN_RESPONSE
 	CHECK_PASSWORD
 	SET_PASSWORD
 	REMOVE_ACCOUNT
@@ -50,20 +56,13 @@ const (
 	GET_CONTACTS
 
 	//Chats
+	GET_CHATS
 	SEND_MESSAGE
 	CLEAR_CHAT
 	DELETE_USER
 
-	//GET CHATS
-	GET_CHATS_START
-	GET_CHATS_PROGRESS
-	GET_CHATS_END
-
 	//Other
 	RESET_KEY
-	SUCCESS
-	ERROR
-	END_SESSION
 )
 
 type Conn struct {
@@ -110,9 +109,6 @@ func HandleHandshake(conn *Conn) ([]byte, error) {
 	// derive session key
 	key := make([]byte, 32)
 	io.ReadFull(hkdf.New(sha256.New, sharedSecret, nil, []byte("session")), key)
-
-	// send server public key
-	SendPacket(conn, SESSION_REPLY, false, serverPriv.PublicKey().Bytes())
 
 	return key, nil
 }
@@ -184,7 +180,7 @@ func SendPacket(conn *Conn, action byte, hasNonce bool, msg []byte) error {
 	if hasNonce {
 		if conn.Iv[0] == 255 {
 			resetKey(conn)
-		return fmt.Errorf("Chiave di sessione scaduta")
+			return fmt.Errorf("Chiave di sessione scaduta")
 		}
 		conn.Iv[0]++
 
@@ -192,12 +188,13 @@ func SendPacket(conn *Conn, action byte, hasNonce bool, msg []byte) error {
 
 		msg, err := crypto.EncryptXChaCha20Poly1305(conn.Key, conn.Iv[:], msg)
 		if err != nil {
-		return err
+			return err
 		}
 		binary.BigEndian.PutUint16(buffer[4:6], msgLen+16)
 		buffer[4] |= 0x80
-		copy(buffer[6:6+msgLen], msg)
-		copy(buffer[6+msgLen:], conn.Iv[:])
+		copy(buffer[6:6+msgLen+16], msg)
+
+		copy(buffer[6+msgLen+16:], conn.Iv[:])
 	} else {
 		buffer = make([]byte, 6+msgLen) // 6 header + msg
 		binary.BigEndian.PutUint16(buffer[4:6], msgLen)
